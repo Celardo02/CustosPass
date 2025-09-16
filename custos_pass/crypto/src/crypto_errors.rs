@@ -44,7 +44,7 @@ impl fmt::Display for CryptoErrOrigin {
 
 // ]]]
 
-/// Contains all the useful information about an error
+/// Contains all the useful information about an error.
 #[derive(Debug, Clone)]
 pub struct CryptoErr{
     orig: CryptoErrOrigin,
@@ -53,10 +53,8 @@ pub struct CryptoErr{
 }
 
 impl CryptoErr {
-    /// Creates a new CryptoErr from a known kind of error and an error message
+    /// Creates a new CryptoErr from a known kind of error and an error message.
     pub fn new(kind: CryptoErrKind, orig: CryptoErrOrigin, msg: &str) -> CryptoErr {
-
-
         CryptoErr {
             kind,
             orig,
@@ -64,16 +62,17 @@ impl CryptoErr {
         }
     }
 
-    /// Returns the error kind
+    /// Returns the error kind.
     pub fn get_kind(&self) -> &CryptoErrKind {
         &self.kind
     }
 
+    /// Returns the error operation type.
     pub fn get_orig(&self) -> &CryptoErrOrigin {
         &self.orig
     }
 
-    /// returns the error message
+    /// returns the error message.
     pub fn get_msg(&self) -> &str {
         &self.msg
     }
