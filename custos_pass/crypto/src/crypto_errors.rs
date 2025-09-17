@@ -9,13 +9,19 @@ use std::fmt;
 /// Describes the kind of error that occurred.
 #[derive(Debug, Clone)]
 pub enum CryptoErrKind {
-    InpuNullOrEmpty,
+    AesKeyGenFailed,
+    DecryptionFailed,
+    EncryptionFailed,
+    InpuNullOrEmpty
 }
 
 impl fmt::Display for CryptoErrKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            CryptoErrKind::InpuNullOrEmpty => write!(f, "input null or empty")
+            CryptoErrKind::AesKeyGenFailed => write!(f, "aes key generation failed"),
+            CryptoErrKind::EncryptionFailed => write!(f, "encryption failed"),
+            CryptoErrKind::DecryptionFailed => write!(f, "decryption failed"),
+            CryptoErrKind::InpuNullOrEmpty => write!(f, "input parameter is null or empty")
         }
     }
 }
