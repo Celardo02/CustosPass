@@ -151,6 +151,7 @@ name = "crypto"
 version = "0.1.0"
 dependencies = [
  "aws-lc-rs",
+ "secure-string",
 ]
 
 [[package]]
@@ -396,6 +397,16 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "secure-string"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "548ba8c9ff631f7bb3a64de1e8ad73fe20f6d04090724f2b496ed45314ad7488"
+dependencies = [
+ "libc",
+ "zeroize",
 ]
 
 [[package]]
