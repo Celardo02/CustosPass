@@ -12,6 +12,7 @@ pub enum CryptoErrKind {
     AesKeyGenFailed,
     DecryptionFailed,
     EncryptionFailed,
+    FipsFail,
     InpuNullOrEmpty
 }
 
@@ -21,6 +22,7 @@ impl fmt::Display for CryptoErrKind {
             CryptoErrKind::AesKeyGenFailed => write!(f, "aes key generation failed"),
             CryptoErrKind::EncryptionFailed => write!(f, "encryption failed"),
             CryptoErrKind::DecryptionFailed => write!(f, "decryption failed"),
+            CryptoErrKind::FipsFail => write!(f, "FIPS mode failed"),
             CryptoErrKind::InpuNullOrEmpty => write!(f, "input parameter is null or empty")
         }
     }
