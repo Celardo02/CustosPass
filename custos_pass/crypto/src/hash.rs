@@ -11,7 +11,7 @@
 //! of the module user to ensure that the same salt value is not reused when hashing the same input data
 
 use aws_lc_rs::pbkdf2;
-use std::{num::NonZeroU32};
+use std::num::NonZeroU32;
 
 // constants [[[
 
@@ -29,6 +29,8 @@ const KDF_ITER_FACTOR: u32 = 210_000;
 pub const SALT_LEN: usize = 64;
 
 // ]]]
+
+// hash trait [[[ 
 
 /// Trait defining hashing behavior
 pub trait Hash {
@@ -56,6 +58,8 @@ pub trait Hash {
     /// `true` if the hashes match, `false` otherwise
     fn verify_hash(salt: &[u8; SALT_LEN], new_key: &[u8], old_key: & [u8]) -> bool;
 }
+
+// ]]]
 
 pub struct HashProvider;
 
