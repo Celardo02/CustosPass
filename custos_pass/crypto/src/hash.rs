@@ -2,79 +2,201 @@
 //!
 //! This module provides hashing capabilities implemented via a key derivation function.
 //!
-//! # Security Considerations
+//! # Security Note
 //!
-//! The current implementation is based on PBKDF2 algorithm provided by aws-ls-rc with FIPS 
-//! compliance feature enabled. 
+//! The current implementation is based on PBKDF2 algorithm provided by `aws_lc_rs` crate with 
+//! FIPS compliance feature enabled. 
 //!
-//! Note that salt reuse is NOT prevented by the module implementation. It is the responsibility
-//! of the module user to ensure that the same salt value is not reused when hashing the same input data
+//! Note that salt reuse is prevented by the module implementation.
 
-use aws_lc_rs::pbkdf2;
-use std::num::NonZeroU32;
+use aws_lc_rs::{pbkdf2, rand::{self, SecureRandom}, try_fips_mode};
+use std::{collections::HashMap, num::NonZeroU32};
+pub use aws_lc_rs::{digest::SHA512_OUTPUT_LEN, error::Unspecified};
+pub use secure_string::SecureBytes;
 
 // constants [[[
 
 /// KDF algorithm used by the module
 const KDF_ALG: pbkdf2::Algorithm = pbkdf2::PBKDF2_HMAC_SHA512;
 
-/// KDF iteration factor used by the module. The iteration value is based on owasp's adivece for
-/// PBKDF2_HMAC_SHA512 at the moment of writing (19th Semptember 2025).
+/// KDF iteration factor used by the module. The iteration value is based on owasp's advice for
+/// PBKDF2_HMAC_SHA512 at the moment of writing (19th September 2025).
 /// (https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 const KDF_ITER_FACTOR: u32 = 210_000;
 
-/// Salt lenght in bytes.
+/// Salt length in bytes.
 /// Doubling minimum salt size advised in NIST SP 800-132 (December 2010) while waiting for its
 /// revised version to be published
 pub const SALT_LEN: usize = 64;
 
 // ]]]
 
+// OldKey struct [[[
+
+/// Represents a key from which at least one hash has been derived.
+#[derive(Hash, Debug)]
+pub struct OldKey {
+    /// Hash of the key.
+    hash: [u8; SHA512_OUTPUT_LEN],
+    /// Value used to salt `hash`.
+    salt: [u8; SALT_LEN]
+}
+
+impl OldKey {
+    /// Creates a new instance of `OldKey` with the hash of the key and the value used to salt it.
+    pub fn new(hash: [u8; SHA512_OUTPUT_LEN], salt: [u8; SALT_LEN]) -> OldKey {
+        OldKey {
+            hash,
+            salt
+        }
+    }
+
+    /// Returns the key hash.
+    pub fn get_hash(&self) -> &[u8; SHA512_OUTPUT_LEN] {
+        &self.hash
+    }
+
+    /// Returns the hash salt
+    pub fn get_salt(&self) -> &[u8; SALT_LEN] {
+        &self.salt
+    }
+}
+
+impl PartialEq for OldKey {
+    fn eq(&self, other: &Self) -> bool {
+       self.hash == other.hash 
+    }
+}
+
+impl Eq for OldKey {}
+ // ]]]
+
 // hash trait [[[ 
 
-/// Trait defining hashing behavior
+/// Defines hashing behavior.
 pub trait Hash {
-    /// Derives an hash for the given `key` and `salt`, storing the output in `hash`
-    ///
-    /// # Security Note
-    ///
-    /// each salt value __must__ be unique for each key value
+    /// Derives an hash for the given `key` and `salt`, storing the output in `out`.
     ///
     /// # Parameters
-    /// - `salt`: value used to salt the hash
     /// - `key`: input key to derive the hash from 
-    /// - `hash`: output hash
-    fn derive_hash(salt: &[u8; SALT_LEN], key: &[u8], hash: &mut [u8]);
+    /// - `out`: output hash
+    ///
+    /// # Returns
+    ///
+    /// Returns the value used to salt the hash, if the latter was successfully derived; 
+    /// `Unspecified` otherwise.
+    fn derive_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes) -> Result<[u8; SALT_LEN], Unspecified>;
 
-    /// Verifies if a provided key hash matches a previously derived one
+    /// Verifies whether the hash of a provided key matches a previously derived one.
     ///
     /// # Parameters 
+    ///
     /// - `salt`: value used to salt `new_key`
-    /// - `new_key`: newly provided key
-    /// - `old_key`: previously derived key
+    /// - `new_key`: newly provided key to be hashed
+    /// - `old_key`: previously derived key hash
     /// 
     /// # Returns
     ///
-    /// `true` if the hashes match, `false` otherwise
-    fn verify_hash(salt: &[u8; SALT_LEN], new_key: &[u8], old_key: & [u8]) -> bool;
+    /// Returns `true` if the hashes match, `false` if they do not, `Unspecified` if
+    /// verification operation fails.
+    fn verify_hash(salt: &[u8; SALT_LEN], new_key: &[u8], old_key: & [u8]) -> Result<bool, Unspecified>;
+
+    /// Returns a salt value or `Unspecified`.
+    fn generate_salt(&self) -> Result<[u8; SALT_LEN], Unspecified>;
+
+    /// Returns all previously used salts for each key that have been used.
+    fn get_old_salts(&self) -> &HashMap<OldKey, Vec<[u8; SALT_LEN]>>;
 }
 
 // ]]]
 
-pub struct HashProvider;
+/// Provides hashing capabilities.
+///
+/// # Security Note
+///
+/// Only __one instance__ of this class must be created at a time to guarantee security against salt 
+/// reuse.
+pub struct HashProvider { 
+    /// Hash map containing all the salts that have ever been used for each key
+    old_salts: HashMap<OldKey, Vec<[u8; SALT_LEN]>>,
+    /// cryptographically secure random number generator
+    rng: rand::SystemRandom
+}
 
-impl Hash for HashProvider {
-    fn derive_hash(salt: &[u8; SALT_LEN], key: &[u8], hash: &mut [u8]) {
-        // in this case, any match is used as the argument is a non-zero constant
-        let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
-
-        pbkdf2::derive(KDF_ALG, iter, salt, key, hash);
+impl HashProvider {
+    /// Creates a new instance of `HashProvider` initializing its hash map with the parameter 
+    /// `old_salts`.
+    pub fn new(old_salts: HashMap<OldKey, Vec<[u8; SALT_LEN]>>) -> HashProvider {
+        HashProvider {
+            old_salts,
+            rng: rand::SystemRandom::new()
+        }
     }
 
-    fn verify_hash(salt: &[u8; SALT_LEN], new_key: &[u8], old_key: & [u8]) -> bool{
-        // in this case, any match is used as the argument is a non-zero constant
+    /// Creates a new instance of `HashProvider` with an empty hash map.
+    pub fn new_empty() -> HashProvider {
+        HashProvider {
+            old_salts: HashMap::new(),
+            rng: rand::SystemRandom::new()
+        }
+    }
+}
+
+impl Hash for HashProvider {
+    fn derive_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes) -> Result<[u8; SALT_LEN], Unspecified> {
+        try_fips_mode()
+            .map_err(|_| Unspecified)?;
+
+        // in this case, no match is used as the argument is a non-zero constant
+        let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
+        let salt = self.generate_salt()?;
+
+        // computing key hash
+        pbkdf2::derive(KDF_ALG, iter, &salt, key.unsecure(), out.unsecure_mut());
+
+        // computing out hash
+        let out_salt = self.generate_salt()?;
+        let mut out_hash = [0u8; SHA512_OUTPUT_LEN];
+
+        pbkdf2::derive(KDF_ALG, iter, &out_salt, out.unsecure(), &mut out_hash);
+        
+        let out_old = OldKey::new(out_hash, out_salt);
+
+        // checking whether out_hash is in old_salts or not
+        self.old_salts.entry(out_old).
+            // adding the salt if out_old exists
+            and_modify(|salt_vec| salt_vec.push(salt.clone())).
+            // creating a new entry for out_old if it does not exist
+            or_insert(
+                vec![salt.clone()]
+            );
+        
+        Ok(salt)
+
+    }
+
+    fn verify_hash(salt: &[u8; SALT_LEN], new_key: &[u8], old_key: & [u8]) -> Result<bool, Unspecified> {
+        try_fips_mode()
+            .map_err(|_| Unspecified)?;
+
+        // in this case, no match is used as the argument is a non-zero constant
         let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
         
-        pbkdf2::verify(KDF_ALG, iter, salt, new_key, old_key).is_ok()
+        Ok(pbkdf2::verify(KDF_ALG, iter, salt, new_key, old_key).is_ok())
+    }
+
+    fn generate_salt(&self) -> Result<[u8; SALT_LEN], Unspecified> {
+        try_fips_mode()
+            .map_err(|_| Unspecified)?;
+
+        let mut salt = [0u8; SALT_LEN];
+
+        self.rng.fill(&mut salt)?;
+
+        Ok(salt)
+    }
+
+    fn get_old_salts(&self) -> &HashMap<OldKey, Vec<[u8; SALT_LEN]>>{
+        &self.old_salts
     }
 }
