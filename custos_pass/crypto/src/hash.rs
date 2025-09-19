@@ -9,7 +9,7 @@
 //!
 //! Note that salt reuse is prevented by the module implementation.
 
-use aws_lc_rs::{pbkdf2, rand::{self, SecureRandom}, try_fips_mode};
+use aws_lc_rs::{pbkdf2, rand::{self, SecureRandom}};
 use std::{collections::HashMap, num::NonZeroU32};
 pub use aws_lc_rs::{digest::SHA512_OUTPUT_LEN, error::Unspecified};
 pub use secure_string::SecureBytes;
@@ -97,9 +97,8 @@ pub trait Hash {
     /// 
     /// # Returns
     ///
-    /// Returns `true` if the hashes match, `false` if they do not, `Unspecified` if
-    /// verification operation fails.
-    fn verify_hash(salt: &[u8; SALT_LEN], new_key: &[u8], old_key: & [u8]) -> Result<bool, Unspecified>;
+    /// Returns `true` if the hashes match, `false` otherwise.
+    fn verify_hash(salt: &[u8; SALT_LEN], new_key: &[u8], old_key: & [u8]) -> bool;
 
     /// Returns a salt value or `Unspecified`.
     fn generate_salt(&self) -> Result<[u8; SALT_LEN], Unspecified>;
@@ -144,8 +143,6 @@ impl HashProvider {
 
 impl Hash for HashProvider {
     fn derive_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes) -> Result<[u8; SALT_LEN], Unspecified> {
-        try_fips_mode()
-            .map_err(|_| Unspecified)?;
 
         // in this case, no match is used as the argument is a non-zero constant
         let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
@@ -175,19 +172,15 @@ impl Hash for HashProvider {
 
     }
 
-    fn verify_hash(salt: &[u8; SALT_LEN], new_key: &[u8], old_key: & [u8]) -> Result<bool, Unspecified> {
-        try_fips_mode()
-            .map_err(|_| Unspecified)?;
+    fn verify_hash(salt: &[u8; SALT_LEN], new_key: &[u8], old_key: & [u8]) -> bool {
 
         // in this case, no match is used as the argument is a non-zero constant
         let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
         
-        Ok(pbkdf2::verify(KDF_ALG, iter, salt, new_key, old_key).is_ok())
+        pbkdf2::verify(KDF_ALG, iter, salt, new_key, old_key).is_ok()
     }
 
     fn generate_salt(&self) -> Result<[u8; SALT_LEN], Unspecified> {
-        try_fips_mode()
-            .map_err(|_| Unspecified)?;
 
         let mut salt = [0u8; SALT_LEN];
 
