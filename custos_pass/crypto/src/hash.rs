@@ -11,8 +11,10 @@
 
 use aws_lc_rs::{pbkdf2, rand::{self, SecureRandom}};
 use std::{collections::HashMap, num::NonZeroU32};
+use crate::{SecureBytes, Unspecified};
 
-use crate::{OldKey, SALT_LEN, SecureBytes, SHA512_OUTPUT_LEN, Unspecified};
+pub use aws_lc_rs::digest::SHA512_OUTPUT_LEN;
+
 // constants [[[
 
 /// KDF algorithm used by the module
@@ -22,6 +24,11 @@ const KDF_ALG: pbkdf2::Algorithm = pbkdf2::PBKDF2_HMAC_SHA512;
 /// PBKDF2_HMAC_SHA512 at the moment of writing (19th September 2025).
 /// (https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 const KDF_ITER_FACTOR: u32 = 210_000;
+
+/// Salt length in bytes.
+/// Doubling minimum salt size advised in NIST SP 800-132 (December 2010) while waiting for its
+/// revised version to be published
+pub const SALT_LEN: usize = 64;
 
 // ]]]
 
@@ -72,7 +79,7 @@ pub trait Hash {
 /// reuse.
 pub struct HashProvider { 
     /// Hash map containing all the salts that have ever been used for each key
-    old_salts: HashMap<OldKey, Vec<[u8; SALT_LEN]>>,
+    old_salts: HashMap<[u8;SHA512_OUTPUT_LEN], Vec<[u8; SALT_LEN]>>,
     /// cryptographically secure random number generator
     rng: rand::SystemRandom
 }
@@ -80,7 +87,7 @@ pub struct HashProvider {
 impl HashProvider {
     /// Creates a new instance of `HashProvider` initializing its hash map with the parameter 
     /// `old_salts`.
-    pub fn new(old_salts: HashMap<OldKey, Vec<[u8; SALT_LEN]>>) -> HashProvider {
+    pub fn new(old_salts: HashMap<[u8;SHA512_OUTPUT_LEN], Vec<[u8; SALT_LEN]>>) -> HashProvider {
         HashProvider {
             old_salts,
             rng: rand::SystemRandom::new()
@@ -112,10 +119,9 @@ impl Hash for HashProvider {
 
         pbkdf2::derive(KDF_ALG, iter, &out_salt, out.unsecure(), &mut out_hash);
         
-        let out_old = OldKey::new(out_hash, out_salt);
 
         // checking whether out_hash is in old_salts or not
-        self.old_salts.entry(out_old).
+        self.old_salts.entry(out_hash).
             // adding the salt if out_old exists
             and_modify(|salt_vec| salt_vec.push(salt.clone())).
             // creating a new entry for out_old if it does not exist
@@ -144,7 +150,7 @@ impl Hash for HashProvider {
         Ok(salt)
     }
 
-    fn get_old_salts(&self) -> &HashMap<OldKey, Vec<[u8; SALT_LEN]>>{
+    fn get_old_salts(&self) -> &HashMap<[u8;SHA512_OUTPUT_LEN], Vec<[u8; SALT_LEN]>>{
         &self.old_salts
     }
 }
