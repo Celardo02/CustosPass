@@ -111,7 +111,12 @@ impl CoreCryptoHashing for CryptoProvider {
         //
         // In both cases, the salt is regenerated
         while let Some(key_vec) = self.old_salts.get(&salt) 
-            && key_vec.iter().any(|k| *k.get_hash() == HashProvider::derive_hash(key, k.get_salt(), SHA512_OUTPUT_LEN)) {
+            && key_vec.iter().any(|k| CryptoProvider::verify_hash(
+                        &HashProvider::derive_hash(key, &salt, SHA512_OUTPUT_LEN), 
+                        k.get_salt(), 
+                        k.get_hash()
+            )
+        ) {
             salt = self.hash.generate_salt()?; 
         }
 
