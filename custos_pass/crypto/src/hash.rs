@@ -4,8 +4,7 @@
 //!
 //! # Security Note
 //!
-//! The current implementation is based on PBKDF2 algorithm provided by `aws_lc_rs` crate with 
-//! FIPS compliance feature enabled. 
+//! The current implementation is based on PBKDF2 algorithm provided by `aws_lc_rs` crate.
 //!
 //! Note that salt reuse for the same key is __NOT__ prevented by the module implementation.
 
