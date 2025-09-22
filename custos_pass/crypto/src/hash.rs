@@ -45,6 +45,10 @@ pub trait Hash {
     /// # Returns
     ///
     /// Returns a `SecureBytes` containing the hash of the desired length.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `key` is empty or `out_len` is 0
     fn derive_hash(key: &SecureBytes, salt: &[u8; SALT_LEN], out_len: usize) -> SecureBytes;
 
     /// Verifies whether the hash of a provided key matches a previously derived one.
@@ -58,6 +62,10 @@ pub trait Hash {
     /// # Returns
     ///
     /// Returns `true` if the hashes match, `false` otherwise.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `new_key` or `old_key` is empty
     fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN], old_key: &SecureBytes) -> bool;
 
     /// Returns a salt value or `CryptoErr`.
@@ -90,6 +98,9 @@ impl HashProvider {
 
 impl Hash for HashProvider {
     fn derive_hash(key: &SecureBytes, salt: &[u8; SALT_LEN], out_len: usize) -> SecureBytes {
+        // checking inputs
+        assert!(!key.unsecure().is_empty());
+        assert_ne!(out_len, 0);
 
         // in this case, no match is used as the argument is a non-zero constant
         let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
@@ -101,6 +112,9 @@ impl Hash for HashProvider {
     }
 
     fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN], old_key: &SecureBytes) -> bool {
+        // checking inputs
+        assert!(!new_key.unsecure().is_empty());
+        assert!(!old_key.unsecure().is_empty());
 
         // in this case, no match is used as the argument is a non-zero constant
         let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
