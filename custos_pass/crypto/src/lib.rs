@@ -7,8 +7,6 @@
 pub mod hash;
 pub mod sym_enc;
 
-// TODO: insert the try_fips_mode a single time here instead of each function of each module
-
 pub use aws_lc_rs::error::Unspecified;
 pub use secure_string::SecureBytes;
 

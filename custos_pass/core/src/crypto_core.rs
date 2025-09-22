@@ -1,3 +1,8 @@
+//! # Crypto Core
+//!
+//! This module provide access to all the cryptography library functionalities
+
+use aws_lc_rs::try_fips_mode;
 use crypto::{hash::{Hash, HashProvider, SALT_LEN, SHA512_OUTPUT_LEN},SecureBytes, Unspecified};
 use std::collections::HashMap;
 
@@ -49,22 +54,40 @@ pub struct CryptoProvider {
 
 impl CryptoProvider {
     /// Initialize a new instance of CryptoProvider.
-    pub fn new_empty() -> Self {
-        CryptoProvider { 
-            hash: HashProvider::new(),
+    ///
+    /// # Returns 
+    ///
+    /// Returns `CryptoProvider` if no error occurs, `Unspecified` otherwise
+    pub fn new_empty() -> Result<Self, Unspecified> {
+        // checks if fips mode is enabled
+        try_fips_mode().map_err(|_| Unspecified)?;
 
-            old_salts: HashMap::new()
-        }
+        Ok( 
+            CryptoProvider { 
+                hash: HashProvider::new(),
+
+                old_salts: HashMap::new()
+            }
+        )
     }
 
 
     /// Initialize a new instance of `CryptoProvider` with an existing `old_salts` hash map.
-    pub fn new(old_salts: HashMap<[u8;SALT_LEN], Vec<OldKey>>) -> Self {
-        CryptoProvider {
-            hash: HashProvider::new(),
+    ///
+    /// # Returns 
+    ///
+    /// Returns `CryptoProvider` if no error occurs, `Unspecified` otherwise
+    pub fn new(old_salts: HashMap<[u8;SALT_LEN], Vec<OldKey>>) -> Result<Self, Unspecified> {
+        // checks if fips mode is enabled
+        try_fips_mode().map_err(|_| Unspecified)?;
 
-            old_salts
-        }
+        Ok(
+            CryptoProvider {
+                hash: HashProvider::new(),
+
+                old_salts
+            }
+        )
     }
 }
 
