@@ -1,88 +1,55 @@
 //! # sym_enc
 //!
-//! This module provides symmetric encryption capabilities through a stateful
-//! structure that ensures security. 
+//! This module provides symmetric encryption capabilities using an AEAD agorithm.
 //!
-//! # Security Considerations
+//! # Security Note
 //!
-//! Current implementation is based on AES GCM algorithm provided by aws-ls-rc with FIPS 
-//! compliance feature enabled. 
+//! Current implementation is based on the aes-gcm crate in the 
+//! [Rust Crypto repository](https://github.com/RustCrypto/AEADs/tree/master/aes-gcm).
 //!
-//! Nonce reuse is prevented by the module implementation. 
+//! Nonce reuse is __NOT__ prevented by the module implementation.
 
 
-use aws_lc_rs::aead::{self, Aad, RandomizedNonceKey, Nonce, AES_256_GCM};
-use crate::crypto_errors::{CryptoErr, CryptoErrOrigin, CryptoErrKind};
-use secure_string::{SecureArray, SecureVec};
+use crate::{SecureBytes, CryptoErr};
+use aes_gcm::{
+    aead::{Aead, generic_array::GenericArray, KeyInit, Payload},
+    Aes256Gcm, Key
+};
 
-// Aes algorithm variant that will be used 
-const AES_ALG: &aead::Algorithm = &AES_256_GCM;
-// lenght of the aes key in bytes
-pub const KEY_LEN: usize = 32;
+// constants [[[
 
-// SymEncResult struct [[[
+/// symmetric key length in bytes
+pub const KEY_LEN: usize = 256 / 8 ;
 
-pub struct SymEncResult {
-    output: SecureVec<u8>,
-    nonce: Nonce
-}
-
-impl SymEncResult {
-    pub fn new(output: SecureVec<u8>, nonce: Nonce) -> SymEncResult {
-        SymEncResult {
-            output,
-            nonce
-        }
-    }
-
-    pub fn get_output (&self) -> &SecureVec<u8> {
-        &self.output
-    }
-
-    pub fn get_nonce (&self) -> &Nonce {
-        &self.nonce
-    }
-}
+/// nonce length in bytes
+pub const NONCE_LEN: usize = 96 / 8;
 
 // ]]]
 
-// SymEncProvider [[[
+// SymEncProvider [[[ 
 
-pub struct SymEncProvider{
-    // IMPORTANT: this struct must be changed with an hash map -> 
-    //      key = hash of the key used in the encryption 
-    //      value = associated nonce
-    // all the struct methods must be changed accordingly
-    old_nonces: Vec<Nonce>
-}
+pub struct SymEncProvider;
 
 impl SymEncProvider {
-    pub fn new(old_nonces: Vec<Nonce>) -> SymEncProvider {
-        SymEncProvider {
-            old_nonces
+    /// Checks if the inputs provided to encryption and decryption function are properly set
+    ///
+    /// # Parameters
+    ///
+    /// - `key`: encryption/decryption key
+    /// - `aad`: additional authenticated data
+    /// - `bytes`: plaintext/ciphertext
+    ///
+    /// # Panics
+    ///
+    /// Panics if `key` is not `KEY_LEN` long, `bytes` is empty or `aad` is not None and is empty
+    fn check_inputs(key: &SecureBytes, aad: Option<&[u8]>, bytes: &SecureBytes) {
+        assert_eq!(!key.unsecure().len(), KEY_LEN);
+        assert!(!bytes.unsecure().is_empty());
+
+        if let Some(a) = aad { 
+            assert!(!a.is_empty());
         }
     }
-
-    pub fn new_empty() -> SymEncProvider {
-        SymEncProvider {
-            old_nonces: Vec::new()
-        }
-    }
-
-
-    fn contains_nonce(&self, nonce: &Nonce) -> bool {
-        self.old_nonces.iter().any(|n| n.as_ref() == nonce.as_ref())
-    }
-
-    fn try_encrypt(&self, aes_key: &RandomizedNonceKey, plain: &SecureVec<u8>, aad: Aad<Vec<u8>>) -> Result<SymEncResult, CryptoErr> {
-        let mut out = Vec::from(plain.unsecure());
-
-        let nonce = aes_key.seal_in_place_append_tag(aad, &mut out)
-            .map_err(|_| CryptoErr::new(CryptoErrKind::EncryptionFailed, CryptoErrOrigin::SymmetricEncryption, "aes encryption process failed"))?;
-
-        Ok(SymEncResult::new(SecureVec::from(out), nonce))
-    }
-
 }
 
 // ]]]
@@ -90,47 +57,126 @@ impl SymEncProvider {
 // SymmetricEnc trait [[[
 
 pub trait SymmetricEnc {
-    fn encrypt (&mut self, key: &SecureArray<u8, KEY_LEN>, aad: Aad<Vec<u8>>, plain: &SecureVec<u8> ) -> Result<SymEncResult, CryptoErr>;
-    fn decrypt (&self, key: &SecureArray<u8, KEY_LEN>, aad: Aad<Vec<u8>>, enc: &SecureVec<u8>) -> Result<SecureVec<u8>, CryptoErr>;
-    fn get_old_nonces(&self) -> &Vec<Nonce>;
+    /// Encrypts `plain` using `key` and including `aad` in the process.
+    ///
+    /// # Security Note
+    ///
+    /// No key derivation function is applied to `key` by this method. It is highly recommended 
+    /// to use a kdf output as key value or to use a very strong encryption key.
+    ///
+    /// # Parameters
+    ///
+    /// - `key`: encryption key. Key must be `KEY_LEN` long
+    /// - `aad`: additional authenticated data. Set it to `None` if not needed
+    /// - `nonce`: nonce use by the encryption algorithm. This value must __NOT__ be reused with
+    /// the same encryption key 
+    /// - `plain`: plaintext that will be encrypted. It must __NOT__ be empty
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SecureBytes` containing the chipertext if no error occurs, `CryptoErr` otherwise.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `key` is not `KEY_LEN` long, `plain` is empty or `aad` is `Some(a)` and `a` is empty
+    fn encrypt (
+        key: &SecureBytes,
+        aad: Option<&[u8]>,
+        nonce: &[u8; NONCE_LEN],
+        plain: &SecureBytes )
+    -> Result<SecureBytes, CryptoErr>;
+
+    /// Decrypts `enc` using `key`, `nonce`, and including `aad` in the process.
+    ///
+    /// # Parameters
+    ///
+    /// - `key`: key used in the encryption process of `enc`
+    /// - `aad`: additional authenticated data used in the encryption process of `enc`
+    /// - `nonce`: nonce used in the encryption process of `enc`
+    /// - `enc`: chipertext. It must __NOT__ be empty
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SecureBytes` containig the plaintext if no error occurs, `CryptoErr` otherwise.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `key` is not `KEY_LEN` long, `enc` is empty or `aad` is `Some(a)` and `a` is empty
+    fn decrypt (
+        key: &SecureBytes,
+        aad: Option<&[u8]>,
+        nonce: &[u8; NONCE_LEN],
+        enc: &SecureBytes)
+    -> Result<SecureBytes, CryptoErr>;
 }
+
 
 impl SymmetricEnc for SymEncProvider {
 
-    fn encrypt (&mut self, key: &SecureArray<u8, KEY_LEN>, aad: Aad<Vec<u8>>, plain: &SecureVec<u8> ) -> Result<SymEncResult, CryptoErr> {
+    fn encrypt (
+        key: &SecureBytes,
+        aad: Option<&[u8]>,
+        nonce: &[u8; NONCE_LEN],
+        plain: &SecureBytes )
+    -> Result<SecureBytes, CryptoErr> {
 
-        // checking whether plain text is empty or not
-        if plain.unsecure().is_empty() { 
-            return Err(CryptoErr::new(CryptoErrKind::InpuNullOrEmpty, CryptoErrOrigin::SymmetricEncryption, "plain text is empty"));
-        }
+        SymEncProvider::check_inputs(key, aad, plain);
 
-        // IMPORTANT: kdf function output must be used instead of key.unsecure()
-        let aes_key = RandomizedNonceKey::new(AES_ALG, key.unsecure())
-            .map_err(|_| CryptoErr::new(CryptoErrKind::AesKeyGenFailed, CryptoErrOrigin::SymmetricEncryption, "aes key generation process failed"))?;
+        // getting the aes key struct from key
+        let key_array: [u8; KEY_LEN] = key.unsecure().try_into()?;
+        let aes_key: &Key<Aes256Gcm> = &key_array.into();
 
-        let mut res = self.try_encrypt(&aes_key, &plain, Aad::from(Vec::from(aad.as_ref())))?;
+        let cipher = Aes256Gcm::new(&aes_key);
 
-        // if the nonce has already been used, the encryption process is repeated.
-        // Even though this is really inefficient in theory, the probability that a specific 
-        // nonce has already been used for a specificy derived key value is almost impossible, 
-        // hence this implementation compromise between code readability and efficiency
-        while self.contains_nonce(&res.get_nonce()) {
-            res = self.try_encrypt(&aes_key, &plain, Aad::from(Vec::from(aad.as_ref())))?;
-        }
-            
-        self.old_nonces.push(Nonce::from(res.get_nonce().as_ref()));
+        let enc = match aad {
+            Some(a) => {
+                let payload = Payload {
+                    msg: plain.unsecure(),
+                    aad: a
+                };
+                // generic array can not panic as NONCE_LEN is enforced by nonce type
+                cipher.encrypt(GenericArray::from_slice(nonce), payload)
+            },
+            None => cipher.encrypt(GenericArray::from_slice(nonce), plain.unsecure())
+        }.map_err(|_| CryptoErr)?;
 
-        Ok(res)
+
+        // no memory leak happens as enc is borrowed by SecureBytes, hence it will get zeroized
+        Ok(SecureBytes::new(enc))
     }
 
-    fn decrypt (&self, key: &SecureArray<u8, KEY_LEN>, aad: Aad<Vec<u8>>, enc: &SecureVec<u8>) -> Result<SecureVec<u8>, CryptoErr>{
-        unimplemented!();
-    }
+    fn decrypt (
+        key: &SecureBytes,
+        aad: Option<&[u8]>,
+        nonce: &[u8; NONCE_LEN],
+        enc: &SecureBytes)
+    -> Result<SecureBytes, CryptoErr>{ 
 
-    fn get_old_nonces (&self) -> &Vec<Nonce> {
-        &self.old_nonces
-    }
 
+        SymEncProvider::check_inputs(key, aad, enc);
+
+        // getting the aes key struct from key
+        let key_array: [u8; KEY_LEN] = key.unsecure().try_into()?;
+        let aes_key: &Key<Aes256Gcm> = &key_array.into();
+
+        let cipher = Aes256Gcm::new(&aes_key);
+
+        let plain = match aad {
+            Some(a) => {
+                let payload = Payload {
+                    msg: enc.unsecure(),
+                    aad: a
+                };
+                // generic array can not panic as NONCE_LEN is enforced by nonce type
+                cipher.decrypt(GenericArray::from_slice(nonce), payload)
+            },
+            None => cipher.decrypt(GenericArray::from_slice(nonce), enc.unsecure())
+        }.map_err(|_| CryptoErr)?;
+
+
+        // no memory leak happens as enc is borrowed by SecureBytes, hence it will get zeroized
+        Ok(SecureBytes::new(plain))
+    }
 }
 
 // ]]]

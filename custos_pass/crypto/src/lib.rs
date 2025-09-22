@@ -5,7 +5,7 @@
  
 // pub mod asym_enc;
 pub mod hash;
-//pub mod sym_enc;
+pub mod sym_enc;
 
 use std::{error, fmt::{Display, Formatter, Result}};
 
