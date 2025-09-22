@@ -3,7 +3,7 @@
 //! This module provide access to all the cryptography library functionalities
 
 use aws_lc_rs::try_fips_mode;
-use crypto::{hash::{Hash, HashProvider, SALT_LEN, SHA512_OUTPUT_LEN},SecureBytes, Unspecified};
+use crypto::{hash::{Hash, HashProvider, SALT_LEN, SHA512_OUTPUT_LEN},SecureBytes, CryptoErr};
 use std::collections::HashMap;
 
 // OldKey struct [[[
@@ -57,10 +57,10 @@ impl CryptoProvider {
     ///
     /// # Returns 
     ///
-    /// Returns `CryptoProvider` if no error occurs, `Unspecified` otherwise
-    pub fn new_empty() -> Result<Self, Unspecified> {
+    /// Returns `CryptoProvider` if no error occurs, `CryptoErr` otherwise
+    pub fn new_empty() -> Result<Self, CryptoErr> {
         // checks if fips mode is enabled
-        try_fips_mode().map_err(|_| Unspecified)?;
+        try_fips_mode().map_err(|_| CryptoErr)?;
 
         Ok( 
             CryptoProvider { 
@@ -76,10 +76,10 @@ impl CryptoProvider {
     ///
     /// # Returns 
     ///
-    /// Returns `CryptoProvider` if no error occurs, `Unspecified` otherwise
-    pub fn new(old_salts: HashMap<[u8;SALT_LEN], Vec<OldKey>>) -> Result<Self, Unspecified> {
+    /// Returns `CryptoProvider` if no error occurs, `CryptoErr` otherwise
+    pub fn new(old_salts: HashMap<[u8;SALT_LEN], Vec<OldKey>>) -> Result<Self, CryptoErr> {
         // checks if fips mode is enabled
-        try_fips_mode().map_err(|_| Unspecified)?;
+        try_fips_mode().map_err(|_| CryptoErr)?;
 
         Ok(
             CryptoProvider {
@@ -105,8 +105,8 @@ pub trait CoreCryptoHashing {
     ///
     /// # Returns
     ///
-    /// Returns the value used to salt `out` or `Unspecified` if any error occurs.
-    fn compute_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes, out_len: usize) -> Result<[u8; SALT_LEN], Unspecified>;
+    /// Returns the value used to salt `out` or `CryptoErr` if any error occurs.
+    fn compute_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes, out_len: usize) -> Result<[u8; SALT_LEN], CryptoErr>;
     
     /// Verifies whether the hash of a provided key matches a previously derived one.
     ///
@@ -126,7 +126,7 @@ pub trait CoreCryptoHashing {
 }
 
 impl CoreCryptoHashing for CryptoProvider {
-    fn compute_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes, out_len: usize) -> Result<[u8; SALT_LEN], Unspecified> {
+    fn compute_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes, out_len: usize) -> Result<[u8; SALT_LEN], CryptoErr> {
         let mut salt = self.hash.generate_salt()?; 
 
         // checking whether the salt has already been used at all. Then, whether it has already

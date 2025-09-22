@@ -10,7 +10,7 @@
 
 use aws_lc_rs::{pbkdf2, rand::{self, SecureRandom}};
 use std::num::NonZeroU32;
-use crate::{SecureBytes, Unspecified};
+use crate::{CryptoErr, SecureBytes};
 
 pub use aws_lc_rs::digest::SHA512_OUTPUT_LEN;
 
@@ -60,8 +60,8 @@ pub trait Hash {
     /// Returns `true` if the hashes match, `false` otherwise.
     fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN], old_key: &SecureBytes) -> bool;
 
-    /// Returns a salt value or `Unspecified`.
-    fn generate_salt(&self) -> Result<[u8; SALT_LEN], Unspecified>;
+    /// Returns a salt value or `CryptoErr`.
+    fn generate_salt(&self) -> Result<[u8; SALT_LEN], CryptoErr>;
 
 }
 
@@ -108,7 +108,7 @@ impl Hash for HashProvider {
         pbkdf2::verify(KDF_ALG, iter, salt, new_key.unsecure(), old_key.unsecure()).is_ok()
     }
 
-    fn generate_salt(&self) -> Result<[u8; SALT_LEN], Unspecified> {
+    fn generate_salt(&self) -> Result<[u8; SALT_LEN], CryptoErr> {
 
         let mut salt = [0u8; SALT_LEN];
 
