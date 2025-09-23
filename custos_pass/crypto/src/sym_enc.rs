@@ -122,9 +122,7 @@ impl SymmetricEnc for SymEncProvider {
 
         SymEncProvider::check_inputs(key, aad, plain);
 
-        // getting the aes key struct from key
-        let key_array: [u8; KEY_LEN] = key.unsecure().try_into()?;
-        let aes_key: &Key<Aes256Gcm> = &key_array.into();
+        let aes_key = Key::<Aes256Gcm>::from_slice(key.unsecure());
 
         let cipher = Aes256Gcm::new(&aes_key);
 
@@ -155,9 +153,8 @@ impl SymmetricEnc for SymEncProvider {
 
         SymEncProvider::check_inputs(key, aad, enc);
 
-        // getting the aes key struct from key
-        let key_array: [u8; KEY_LEN] = key.unsecure().try_into()?;
-        let aes_key: &Key<Aes256Gcm> = &key_array.into();
+
+        let aes_key = Key::<Aes256Gcm>::from_slice(key.unsecure());
 
         let cipher = Aes256Gcm::new(&aes_key);
 
