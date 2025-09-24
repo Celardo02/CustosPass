@@ -45,8 +45,6 @@ impl CryptoCoreHashing for CryptoProvider {
 
         // checking whether the salt has already been used at all. Then, whether it has already
         // been used with key argument.
-        //
-        // In both cases, the salt is regenerated
         while let Some(key_vec) = self.old_salts.get(&salt) 
             && key_vec.iter().any(|k| CryptoProvider::verify_hash(
                         &HashProvider::derive_hash(key, &salt, SHA512_OUTPUT_LEN), 
