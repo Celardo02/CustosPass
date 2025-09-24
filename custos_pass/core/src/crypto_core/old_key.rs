@@ -5,7 +5,7 @@
 use super::{SALT_LEN, SecureBytes};
 
 /// Represents an already used key.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OldKey {
     /// Hash of the key.
     hash: SecureBytes,
