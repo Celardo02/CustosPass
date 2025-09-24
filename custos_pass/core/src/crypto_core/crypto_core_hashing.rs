@@ -2,7 +2,11 @@
 //!
 //! This submodule provides hashing capabilities to `CryptoProvider`.
 
-use super::{CryptoErr, CryptoProvider, Hash,hashing_res::HashingRes, HashMap, HashProvider, OldKey, SALT_LEN, SHA512_OUTPUT_LEN, SecureBytes};
+use super::{
+    CryptoErr, CryptoProvider, OldKey, SecureBytes, 
+    Hash,hashing_res::HashingRes, HashMap, HashProvider, SALT_LEN, SHA512_OUTPUT_LEN,
+    RandomNumberGenerator, Rng
+};
 
 /// Define the hashing behavior offered by `core_crypto` module.
 pub trait CryptoCoreHashing {
@@ -37,7 +41,7 @@ pub trait CryptoCoreHashing {
 
 impl CryptoCoreHashing for CryptoProvider {
     fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashingRes, CryptoErr> {
-        let mut salt = self.hash.generate_salt()?; 
+        let mut salt = self.rng.generate_salt()?; 
 
         // checking whether the salt has already been used at all. Then, whether it has already
         // been used with key argument.
@@ -50,14 +54,14 @@ impl CryptoCoreHashing for CryptoProvider {
                         k.get_hash()
             )
         ) {
-            salt = self.hash.generate_salt()?; 
+            salt = self.rng.generate_salt()?; 
         }
 
         let out = HashProvider::derive_hash(key, &salt, out_len);
 
         // computing the hash of out to avoid salt reuse in the future
 
-        let salt_old = self.hash.generate_salt()?;
+        let salt_old = self.rng.generate_salt()?;
         // NOTE: the length of hash_old MUST be the same used as parameter in the derive associated
         // function called in the while loop
         let hash_old = HashProvider::derive_hash(&out, &salt_old, SHA512_OUTPUT_LEN);

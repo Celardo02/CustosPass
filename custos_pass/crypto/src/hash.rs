@@ -8,9 +8,9 @@
 //!
 //! Note that salt reuse for the same key is __NOT__ prevented by the module implementation.
 
-use aws_lc_rs::{pbkdf2, rand::{self, SecureRandom}};
+use aws_lc_rs::pbkdf2;
 use std::num::NonZeroU32;
-use crate::{CryptoErr, SecureBytes};
+use crate::SecureBytes;
 
 pub use aws_lc_rs::digest::SHA512_OUTPUT_LEN;
 
@@ -67,10 +67,6 @@ pub trait Hash {
     ///
     /// Panics if `new_key` or `old_key` is empty
     fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN], old_key: &SecureBytes) -> bool;
-
-    /// Returns a salt value or `CryptoErr`.
-    fn generate_salt(&self) -> Result<[u8; SALT_LEN], CryptoErr>;
-
 }
 
 // ]]]
@@ -78,23 +74,7 @@ pub trait Hash {
 // HashProvider [[[
 
 /// Provides hashing capabilities.
-///
-/// # Security Note
-///
-/// Only __one instance__ of this class must be created at a time to guarantee secure number 
-/// generation.
-pub struct HashProvider { 
-    /// Cryptographically secure random number generator.
-    rng: rand::SystemRandom
-}
-
-impl HashProvider {
-    pub fn new() -> Self {
-        HashProvider {
-            rng: rand::SystemRandom::new()
-        }
-    }
-}
+pub struct HashProvider;
 
 impl Hash for HashProvider {
     fn derive_hash(key: &SecureBytes, salt: &[u8; SALT_LEN], out_len: usize) -> SecureBytes {
@@ -121,16 +101,6 @@ impl Hash for HashProvider {
         
         pbkdf2::verify(KDF_ALG, iter, salt, new_key.unsecure(), old_key.unsecure()).is_ok()
     }
-
-    fn generate_salt(&self) -> Result<[u8; SALT_LEN], CryptoErr> {
-
-        let mut salt = [0u8; SALT_LEN];
-
-        self.rng.fill(&mut salt)?;
-
-        Ok(salt)
-    }
-
 }
 
 // ]]]
