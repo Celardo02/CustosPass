@@ -2,9 +2,8 @@
 //!
 //! This module provide access to all the cryptography library functionalities
 
-pub mod old_key;
 pub mod sym_enc_res;
-pub mod hashing_res;
+pub mod hash_val;
 
 pub mod crypto_core_hashing;
 pub mod crypto_core_sym;
@@ -20,7 +19,7 @@ use crypto::{
     CryptoErr
 };
 
-use crate::crypto_core::old_key::OldKey;
+use crate::crypto_core::hash_val::HashVal;
 
 /// Provides cryptographic capabilities.
 ///
@@ -33,11 +32,11 @@ pub struct CryptoProvider {
 
     /// Hash map storing all the keys that have ever been used for each salt value in the 
     /// key derivation function.
-    old_salts: HashMap<[u8;SALT_LEN], Vec<OldKey>>,
+    old_salts: HashMap<[u8;SALT_LEN], Vec<HashVal>>,
 
     /// Hash map storing all the keys that have ever been used for each nonce value in the
     /// encryption function
-    old_nonces: HashMap<[u8;NONCE_LEN], Vec<OldKey>>
+    old_nonces: HashMap<[u8;NONCE_LEN], Vec<HashVal>>
 }
 
 impl CryptoProvider {
@@ -67,8 +66,8 @@ impl CryptoProvider {
     ///
     /// Returns `CryptoProvider` if no error occurs, `CryptoErr` otherwise
     pub fn new(
-        old_salts: HashMap<[u8;SALT_LEN], Vec<OldKey>>,
-        old_nonces: HashMap<[u8; NONCE_LEN], Vec<OldKey>>
+        old_salts: HashMap<[u8;SALT_LEN], Vec<HashVal>>,
+        old_nonces: HashMap<[u8; NONCE_LEN], Vec<HashVal>>
     ) -> Result<Self, CryptoErr> {
         // checks if fips mode is enabled
         try_fips_mode().map_err(|_| CryptoErr)?;

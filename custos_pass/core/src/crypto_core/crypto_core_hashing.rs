@@ -3,9 +3,9 @@
 //! This submodule provides hashing capabilities to `CryptoProvider`.
 
 use super::{
-    CryptoErr, CryptoProvider, OldKey, SecureBytes, 
-    Hash,hashing_res::HashingRes, HashMap, HashProvider, SALT_LEN, SHA512_OUTPUT_LEN,
-    RandomNumberGenerator, Rng
+    CryptoErr, CryptoProvider, SecureBytes,
+    Hash, HashMap, HashProvider, HashVal, SALT_LEN, SHA512_OUTPUT_LEN,
+    RandomNumberGenerator
 };
 
 /// Define the hashing behavior offered by `core_crypto` module.
@@ -19,8 +19,8 @@ pub trait CryptoCoreHashing {
     ///
     /// # Returns
     ///
-    /// Returns `HashingRes` or `CryptoErr` if any error occurs.
-    fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashingRes, CryptoErr>;
+    /// Returns `HashVal` or `CryptoErr` if any error occurs.
+    fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr>;
     
     /// Verifies whether the hash of a provided key matches a previously derived one.
     ///
@@ -36,11 +36,11 @@ pub trait CryptoCoreHashing {
     fn verify_hash( new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> bool;
 
     /// Returns all previously used keys for each salt.
-    fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<OldKey>>;
+    fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<HashVal>>;
 }
 
 impl CryptoCoreHashing for CryptoProvider {
-    fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashingRes, CryptoErr> {
+    fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr> {
         let mut salt = self.rng.generate_salt()?; 
 
         // checking whether the salt has already been used at all. Then, whether it has already
@@ -63,7 +63,7 @@ impl CryptoCoreHashing for CryptoProvider {
         // NOTE: the length of hash_old MUST be the same used as parameter in the derive associated
         // function called in the while loop
         let hash_old = HashProvider::derive_hash(&out, &salt_old, SHA512_OUTPUT_LEN);
-        let old_k = OldKey::new(hash_old, salt_old);
+        let old_k = HashVal::new(hash_old, salt_old);
 
         self.old_salts.entry(salt)
             // as is less likely to get the same salt twice than getting a new one, clone method 
@@ -71,14 +71,14 @@ impl CryptoCoreHashing for CryptoProvider {
             .and_modify(|key_vec| key_vec.push(old_k.clone()))
             .or_insert(vec![old_k]);
 
-        Ok(HashingRes::new(out, salt))
+        Ok(HashVal::new(out, salt))
     }
 
     fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> bool {
         HashProvider::verify_hash(new_key, salt, old_key)
     }
 
-    fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<OldKey>> {
+    fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<HashVal>> {
         &self.old_salts
     }
 }
