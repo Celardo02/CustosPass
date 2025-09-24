@@ -2,7 +2,7 @@
 //!
 //! This submodule provides hashing capabilities to `CryptoProvider`.
 
-use super::{CryptoErr, CryptoProvider, Hash, HashMap, HashProvider, OldKey, SALT_LEN, SHA512_OUTPUT_LEN, SecureBytes};
+use super::{CryptoErr, CryptoProvider, Hash,hashing_res::HashingRes, HashMap, HashProvider, OldKey, SALT_LEN, SHA512_OUTPUT_LEN, SecureBytes};
 
 /// Define the hashing behavior offered by `core_crypto` module.
 pub trait CryptoCoreHashing {
@@ -11,13 +11,12 @@ pub trait CryptoCoreHashing {
     ///
     /// # Parameters
     /// - `key`: input key to derive the hash from 
-    /// - `out`: output hash
-    /// - `out_len`: output hash length
+    /// - `out_len`: required output hash length
     ///
     /// # Returns
     ///
-    /// Returns the value used to salt `out` or `CryptoErr` if any error occurs.
-    fn compute_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes, out_len: usize) -> Result<[u8; SALT_LEN], CryptoErr>;
+    /// Returns `HashingRes` or `CryptoErr` if any error occurs.
+    fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashingRes, CryptoErr>;
     
     /// Verifies whether the hash of a provided key matches a previously derived one.
     ///
@@ -37,7 +36,7 @@ pub trait CryptoCoreHashing {
 }
 
 impl CryptoCoreHashing for CryptoProvider {
-    fn compute_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes, out_len: usize) -> Result<[u8; SALT_LEN], CryptoErr> {
+    fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashingRes, CryptoErr> {
         let mut salt = self.hash.generate_salt()?; 
 
         // checking whether the salt has already been used at all. Then, whether it has already
@@ -54,10 +53,14 @@ impl CryptoCoreHashing for CryptoProvider {
             salt = self.hash.generate_salt()?; 
         }
 
+        let out = HashProvider::derive_hash(key, &salt, out_len);
+
+        // computing the hash of out to avoid salt reuse in the future
+
         let salt_old = self.hash.generate_salt()?;
         // NOTE: the length of hash_old MUST be the same used as parameter in the derive associated
         // function called in the while loop
-        let hash_old = HashProvider::derive_hash(out, &salt_old, SHA512_OUTPUT_LEN);
+        let hash_old = HashProvider::derive_hash(&out, &salt_old, SHA512_OUTPUT_LEN);
         let old_k = OldKey::new(hash_old, salt_old);
 
         self.old_salts.entry(salt)
@@ -66,9 +69,7 @@ impl CryptoCoreHashing for CryptoProvider {
             .and_modify(|key_vec| key_vec.push(old_k.clone()))
             .or_insert(vec![old_k]);
 
-        *out = HashProvider::derive_hash(key, &salt, out_len);
-
-        Ok(salt)
+        Ok(HashingRes::new(out, salt))
     }
 
     fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> bool {
