@@ -8,6 +8,29 @@ use super::{
     RandomNumberGenerator
 };
 
+impl CryptoProvider {
+    /// Computes again an hash value.
+    ///
+    /// # Security Note
+    ///
+    /// This method do __NOT__ prevent salt resue, hence it is only meant to be used when an
+    /// already computed hash is needed and only the key and the salt from which it is
+    /// derived are known. Any other usage of this associated function may lead to security issues.
+    ///
+    /// # Parameters
+    ///
+    /// - `key`: key from which derive the hash
+    /// - `salt`: hash salt value
+    /// - `out_len`: hash length
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SecureBytes` containing the hash value.
+    pub(super) fn recompute_hash(key: &SecureBytes, salt: &[u8; SALT_LEN], out_len: usize) -> SecureBytes {
+        HashProvider::derive_hash(key, salt, out_len)
+    }
+}
+
 /// Define the hashing behavior offered by `core_crypto` module.
 pub trait CryptoCoreHashing {
 
@@ -21,7 +44,7 @@ pub trait CryptoCoreHashing {
     ///
     /// Returns `HashVal` or `CryptoErr` if any error occurs.
     fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr>;
-    
+
     /// Verifies whether the hash of a provided key matches a previously derived one.
     ///
     /// # Parameters 
@@ -32,8 +55,9 @@ pub trait CryptoCoreHashing {
     /// 
     /// # Returns
     ///
-    /// Returns `true` if the hashes match, `false` otherwise.
-    fn verify_hash( new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> bool;
+    /// Returns `true` if the hashes match, `false` if they do not, `CryptoErr` if either `new_key`
+    /// or `old_key` is empty.
+    fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> Result<bool, CryptoErr>;
 
     /// Returns all previously used keys for each salt.
     fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<HashVal>>;
@@ -41,12 +65,17 @@ pub trait CryptoCoreHashing {
 
 impl CryptoCoreHashing for CryptoProvider {
     fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr> {
+        // checking inputs
+        if key.unsecure().is_empty() || out_len == 0 {
+            return Err(CryptoErr)
+        }
+
         let mut salt = self.rng.generate_salt()?; 
 
         // checking whether the salt has already been used at all. Then, whether it has already
         // been used with key argument.
         while let Some(key_vec) = self.old_salts.get(&salt) 
-            && key_vec.iter().any(|k| CryptoProvider::verify_hash(
+            && key_vec.iter().any(|k| HashProvider::verify_hash(
                         &HashProvider::derive_hash(key, &salt, SHA512_OUTPUT_LEN), 
                         k.get_salt(), 
                         k.get_hash()
@@ -74,8 +103,13 @@ impl CryptoCoreHashing for CryptoProvider {
         Ok(HashVal::new(out, salt))
     }
 
-    fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> bool {
-        HashProvider::verify_hash(new_key, salt, old_key)
+    fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> Result<bool, CryptoErr> {
+        // checking inputs
+        if new_key.unsecure().is_empty() || old_key.unsecure().is_empty() {
+            return Err(CryptoErr)
+        }
+
+        Ok(HashProvider::verify_hash(new_key, salt, old_key))
     }
 
     fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<HashVal>> {
