@@ -2,41 +2,25 @@
 //!
 //! This module provide access to all the cryptography library functionalities
 
+pub mod old_key;
+pub mod sym_enc_res;
+pub mod crypto_core_hashing;
+
 use aws_lc_rs::try_fips_mode;
-use crypto::{hash::{Hash, HashProvider, SALT_LEN, SHA512_OUTPUT_LEN},SecureBytes, CryptoErr};
 use std::collections::HashMap;
 
-// OldKey struct [[[
+use crypto::{
+    hash::{Hash, HashProvider, SALT_LEN, SHA512_OUTPUT_LEN},
+    sym_enc::{KEY_LEN, NONCE_LEN},
+    SecureBytes,
+    CryptoErr
+};
 
-/// Represents an already used key.
-#[derive(Clone, Debug)]
-pub struct OldKey {
-    /// Hash of the key.
-    hash: SecureBytes,
-    /// Value used to salt `hash`.
-    salt: [u8; SALT_LEN]
-}
-
-impl OldKey {
-    /// Creates a new instance of `OldKey` with the hash of the key and the value used to salt it.
-    pub fn new(hash: SecureBytes, salt: [u8; SALT_LEN]) -> Self {
-        OldKey {
-            hash,
-            salt
-        }
-    }
-
-    /// Returns the key hash.
-    pub fn get_hash(&self) -> &SecureBytes {
-        &self.hash
-    }
-
-    /// Returns the hash salt
-    pub fn get_salt(&self) -> &[u8; SALT_LEN] {
-        &self.salt
-    }
-}
-// ]]]
+use crate::crypto_core::{
+    old_key::OldKey,
+    sym_enc_res::SymEncRes,
+    crypto_core_hashing::*
+};
 
 /// Provides cryptographic capabilities.
 ///
@@ -50,6 +34,10 @@ pub struct CryptoProvider {
     /// Hash map storing all the keys that have ever been used for each salt value in the 
     /// key derivation function.
     old_salts: HashMap<[u8;SALT_LEN], Vec<OldKey>>,
+
+    /// Hash map storing all the keys that have ever been used for each nonce value in the
+    /// encryption function
+    old_nonces: HashMap<[u8;NONCE_LEN], Vec<OldKey>>
 }
 
 impl CryptoProvider {
@@ -65,107 +53,32 @@ impl CryptoProvider {
         Ok( 
             CryptoProvider { 
                 hash: HashProvider::new(),
-
-                old_salts: HashMap::new()
+                old_salts: HashMap::new(),
+                old_nonces: HashMap::new()
             }
         )
     }
 
 
-    /// Initialize a new instance of `CryptoProvider` with an existing `old_salts` hash map.
+    /// Initialize a new instance of `CryptoProvider` with existing `old_salts` and `old_nonces`
+    /// hash maps.
     ///
     /// # Returns 
     ///
     /// Returns `CryptoProvider` if no error occurs, `CryptoErr` otherwise
-    pub fn new(old_salts: HashMap<[u8;SALT_LEN], Vec<OldKey>>) -> Result<Self, CryptoErr> {
+    pub fn new(
+        old_salts: HashMap<[u8;SALT_LEN], Vec<OldKey>>,
+        old_nonces: HashMap<[u8; NONCE_LEN], Vec<OldKey>>
+    ) -> Result<Self, CryptoErr> {
         // checks if fips mode is enabled
         try_fips_mode().map_err(|_| CryptoErr)?;
 
         Ok(
             CryptoProvider {
                 hash: HashProvider::new(),
-
-                old_salts
+                old_salts,
+                old_nonces
             }
         )
     }
 }
-
-// CoreCryptoHashing [[[
-
-/// Define the hashing behavior offered by `core_crypto` module
-pub trait CoreCryptoHashing {
-
-    /// Computes the hash for `key` and stores the output in `out`.
-    ///
-    /// # Parameters
-    /// - `key`: input key to derive the hash from 
-    /// - `out`: output hash
-    /// - `out_len`: output hash length
-    ///
-    /// # Returns
-    ///
-    /// Returns the value used to salt `out` or `CryptoErr` if any error occurs.
-    fn compute_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes, out_len: usize) -> Result<[u8; SALT_LEN], CryptoErr>;
-    
-    /// Verifies whether the hash of a provided key matches a previously derived one.
-    ///
-    /// # Parameters 
-    ///
-    /// - `new_key`: newly provided key to be hashed
-    /// - `salt`: value used to salt `new_key`
-    /// - `old_key`: previously derived key hash
-    /// 
-    /// # Returns
-    ///
-    /// Returns `true` if the hashes match, `false` otherwise.
-    fn verify_hash( new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> bool;
-
-    /// Returns all previously used keys for each salt.
-    fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<OldKey>>;
-}
-
-impl CoreCryptoHashing for CryptoProvider {
-    fn compute_hash(&mut self, key: &SecureBytes, out: &mut SecureBytes, out_len: usize) -> Result<[u8; SALT_LEN], CryptoErr> {
-        let mut salt = self.hash.generate_salt()?; 
-
-        // checking whether the salt has already been used at all. Then, whether it has already
-        // been used with key argument.
-        //
-        // In both cases, the salt is regenerated
-        while let Some(key_vec) = self.old_salts.get(&salt) 
-            && key_vec.iter().any(|k| CryptoProvider::verify_hash(
-                        &HashProvider::derive_hash(key, &salt, SHA512_OUTPUT_LEN), 
-                        k.get_salt(), 
-                        k.get_hash()
-            )
-        ) {
-            salt = self.hash.generate_salt()?; 
-        }
-
-        let salt_old = self.hash.generate_salt()?;
-        // NOTE: the length of hash_old MUST be the same used as parameter in the derive associated
-        // function called in the while loop
-        let hash_old = HashProvider::derive_hash(out, &salt_old, SHA512_OUTPUT_LEN);
-        let old_k = OldKey::new(hash_old, salt_old);
-
-        self.old_salts.entry(salt)
-            // as is less likely to get the same salt twice than getting a new one, clone method 
-            // is invoked here instead of or_insert
-            .and_modify(|key_vec| key_vec.push(old_k.clone()))
-            .or_insert(vec![old_k]);
-
-        *out = HashProvider::derive_hash(key, &salt, out_len);
-
-        Ok(salt)
-    }
-
-    fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> bool {
-        HashProvider::verify_hash(new_key, salt, old_key)
-    }
-
-    fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<OldKey>> {
-        &self.old_salts
-    }
-}
-// ]]]
