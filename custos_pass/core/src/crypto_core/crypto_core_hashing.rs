@@ -74,14 +74,15 @@ impl CryptoCoreHashing for CryptoProvider {
 
         // checking whether the salt has already been used at all. Then, whether it has already
         // been used with key argument.
-        while let Some(key_vec) = self.old_salts.get(&salt) 
-            && key_vec.iter().any(|k| HashProvider::verify_hash(
-                        &HashProvider::derive_hash(key, &salt, SHA512_OUTPUT_LEN), 
-                        k.get_salt(), 
-                        k.get_hash()
-            )
-        ) {
-            salt = self.rng.generate_salt()?; 
+        if let Some(key_vec) = self.old_salts.get(&salt) {
+                while key_vec.iter().any(|k| HashProvider::verify_hash(
+                            &HashProvider::derive_hash(key, &salt, SHA512_OUTPUT_LEN), 
+                            k.get_salt(), 
+                            k.get_hash()
+                )
+            ) {
+                salt = self.rng.generate_salt()?; 
+            }
         }
 
         let out = HashProvider::derive_hash(key, &salt, out_len);
