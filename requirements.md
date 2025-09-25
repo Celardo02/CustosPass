@@ -139,7 +139,6 @@ Synchronization handling interface must allow the user to:
 2. symmetric encryption will be performed using AES GCM algorithm
     1. the encryption key must be the output of the key derivation algorithm applied to the chosen password and a newly generated salt
     2. inizialization vector must be unique
-3. asymmetric encryption will be performed using RSA algorithm
 
 Each time that one of those algorithms is cited in the text below, its requirements must be enforced.
 
@@ -149,7 +148,7 @@ Each time that one of those algorithms is cited in the text below, its requireme
 Master password must be:
 1. stored as its corresponding hash
 2. different from previous ones, if changed
-    1. old master passwords must be encrypted with the current one
+    1. old master passwords must be stored as their hashes
 3. checked each time it is provided 
 
 ## 2.3 User Interfaces Security
@@ -167,9 +166,8 @@ Master password must be:
 
 ### 2.3.3 Synchronization Security
 
-1. peer-to-peer communication during vault synchronization operations must:
-    1. be encrypted using RSA to exchange a _one time password_ (OTP)
-    2. use the OTP to cypher the vault using AES before sending it
+1. peer-to-peer communication during vault synchronization operations must use TLS 1.3 to 
+exchange any information
 2. a timestamp must be included within the AES additional authenticated data (AAD) 
     1. any vault sent more than one minute before the time of receipt must be ignored 
 3. the sender must generate a random OTP (called _vault tag_ for simplicity) for each communication
