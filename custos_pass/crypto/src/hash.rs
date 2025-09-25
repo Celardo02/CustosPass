@@ -7,6 +7,24 @@
 //! The current implementation is based on PBKDF2 algorithm provided by `aws_lc_rs` crate.
 //!
 //! Note that salt reuse for the same key is __NOT__ prevented by the module implementation.
+//!
+//! # Example
+//!
+//! ```
+//! use crypto::hash::{Hash, HashProvider, SALT_LEN, SHA512_OUTPUT_LEN};
+//! use crypto::SecureBytes;
+//!
+//! // key that needs to be hashed
+//! let new_key = SecureBytes::new(Vec::from("key value"));
+//! // hash output length
+//! let len = SHA512_OUTPUT_LEN;
+//! // hash salt. It can be an arbitrary value
+//! let salt = [3u8;SALT_LEN];
+//!
+//! let old_key = HashProvider::derive_hash(&new_key, &salt, len);
+//!
+//! assert!(HashProvider::verify_hash(&new_key, &salt, &old_key));
+//! ```
 
 use aws_lc_rs::pbkdf2;
 use std::num::NonZeroU32;
@@ -101,6 +119,167 @@ impl Hash for HashProvider {
         
         pbkdf2::verify(KDF_ALG, iter, salt, new_key.unsecure(), old_key.unsecure()).is_ok()
     }
+}
+
+// ]]]
+
+// unit testing [[[
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // derive_hash tests [[[
+
+    /// Tests that `derive_hash` panics if `key` is empty
+    #[test]
+    #[should_panic]
+    fn derive_hash_empty_key () {
+        HashProvider::derive_hash(&SecureBytes::new(Vec::new()), &[1u8; SALT_LEN], 10);
+    }
+
+    /// Tests that `derive_hash` panics if `out_len` is 0
+    #[test]
+    #[should_panic]
+    fn derive_hash_0_len () {
+        HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], 0);
+    }
+
+    /// Tests that `derive_hash` panics if `key` is empty and `out_len` is 0
+    #[test]
+    #[should_panic]
+    fn derive_hash_empty_key_0_outlen () {
+        HashProvider::derive_hash(&SecureBytes::new(Vec::new()), &[1u8; SALT_LEN], 0);
+    }
+
+    /// Tests that `derive_hash` returns a `SecureBytes` with the desired length
+    #[test]
+    fn derive_hash_correct_outlen() {
+        let len = 10;
+        let sb = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], len);
+
+        assert_eq!(sb.unsecure().len(), len);
+    }
+
+    /// Tests that `derive_hash` returns the same hash value given the same `key`, `salt` and `len`
+    #[test]
+    fn derive_hash_same_result() {
+        let len = 10;
+        let sb1 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], len);
+        let sb2 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], len);
+
+        assert_eq!(sb1, sb2);
+    }
+
+    /// Tests that `derive_hash` returns a value which is different from `key`, even if the hash 
+    /// has the same length of `key`
+    #[test]
+    fn derive_hash_value() {
+        let val = SecureBytes::new(Vec::from("key"));
+
+        let hash = HashProvider::derive_hash(&val, &[1u8; SALT_LEN], val.unsecure().len());
+
+        assert_ne!(val, hash);
+    }
+
+    /// Tests that `derive_hash` returns the a different hash value given the same `salt` and
+    /// `len`, but a different `key`
+    #[test]
+    fn derive_hash_diff_key() {
+        let len = 10;
+        let sb1 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test1")), &[1u8; SALT_LEN], len);
+        let sb2 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test2")), &[1u8; SALT_LEN], len);
+
+        assert_ne!(sb1, sb2);
+    }
+
+    /// Tests that `derive_hash` returns the a different hash value given the same `key` and
+    /// `len`, but a different `salt`
+    #[test]
+    fn derive_hash_diff_salt() {
+        let len = 10;
+        let sb1 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], len);
+        let sb2 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[2u8; SALT_LEN], len);
+
+        assert_ne!(sb1, sb2);
+    }
+
+    /// Tests that `derive_hash` returns the a different hash value given the same `key` and
+    /// `salt`, but a different `len`
+    #[test]
+    fn derive_hash_diff_len() {
+        let sb1 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], 10);
+        let sb2 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], 20);
+
+        assert_ne!(sb1, sb2);
+    }
+
+    // ]]]
+
+    // verify_hash tests [[[
+
+    /// Tests that `verify_hash` panics if `new_key` is empty
+    #[test]
+    #[should_panic]
+    fn verify_hash_empty_newkey () {
+        HashProvider::verify_hash(&SecureBytes::new(Vec::new()), &[1u8; SALT_LEN], &SecureBytes::new(Vec::from("old_key")));
+    }
+
+    /// Tests that `verify_hash` panics if `old_key` is empty
+    #[test]
+    #[should_panic]
+    fn verify_hash_empty_oldkey () {
+        HashProvider::verify_hash(&SecureBytes::new(Vec::from("new_key")), &[1u8; SALT_LEN], &SecureBytes::new(Vec::new()));
+    }
+
+    /// Tests that `verify_hash` panics if both `old_key` and `new_key` are empty
+    #[test]
+    #[should_panic]
+    fn verify_hash_empty_newkey_oldkey () {
+        HashProvider::verify_hash(&SecureBytes::new(Vec::new()), &[1u8; SALT_LEN], &SecureBytes::new(Vec::new()));
+    }
+
+    /// Tests that `verify_hash` returns `true` if `new_key` hash salted with `salt` is `old_key`
+    #[test]
+    fn verify_hash_true () {
+        let len = 10;
+        let val = SecureBytes::new(Vec::from("key"));
+        let salt = [1u8; SALT_LEN];
+
+        let hash = HashProvider::derive_hash(&val, &salt, len);
+
+        assert!(HashProvider::verify_hash(&val, &salt, &hash));
+    }
+
+    /// Tests that `verify_hash` returns `false` if `old_key` is derived from a different key than
+    /// `new_key`, even with the same salt value
+    #[test]
+    fn verify_hash_false_diff_newkey () {
+        let len = 10;
+        let val1 = SecureBytes::new(Vec::from("key"));
+        let val2 = SecureBytes::new(Vec::from("another_key"));
+        let salt = [1u8; SALT_LEN];
+
+        let hash = HashProvider::derive_hash(&val1, &salt, len);
+
+        assert!(!HashProvider::verify_hash(&val2, &salt, &hash));
+    }
+
+    /// Tests that `verify_hash` returns `false` if `old_key` is derived from `new_key`, but with 
+    /// a different salt
+    #[test]
+    fn verify_hash_false_diff_salt () {
+        let len = 10;
+        let val = SecureBytes::new(Vec::from("key"));
+        let salt1 = [1u8; SALT_LEN];
+        let salt2 = [2u8; SALT_LEN];
+
+        let hash = HashProvider::derive_hash(&val, &salt1, len);
+
+        assert!(!HashProvider::verify_hash(&val, &salt2, &hash));
+    }
+    // ]]]
+
 }
 
 // ]]]
