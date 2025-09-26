@@ -1,6 +1,6 @@
 //! # Crypto Core
 //!
-//! This module provide access to all the cryptography library functionalities
+//! This module provides access to all the features of the cryptographic library.
 
 pub mod sym_enc_res;
 pub mod hash_val;
