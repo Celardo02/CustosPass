@@ -5,7 +5,7 @@
 use super::{NONCE_LEN, SALT_LEN, SecureBytes};
 
 /// Contains the output of the symmetric encryption process
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SymEncRes {
     enc: SecureBytes,
     key_salt: [u8; SALT_LEN],
