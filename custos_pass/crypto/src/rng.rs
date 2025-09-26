@@ -1,6 +1,44 @@
 //! # Rng 
 //!
 //! This module provides cryptographically secure random number generation capabilities.
+//!
+//! # Example 
+//! ```
+//! use crypto::{
+//!     CryptoErr,
+//!     hash::SALT_LEN,
+//!     sym_enc::NONCE_LEN,
+//!     rng::{Rng, RandomNumberGenerator}
+//! };
+//!
+//! // create only one instance of Rng
+//! let rng = Rng::new();
+//!
+//! // generating a random value with an arbitrary length
+//! let len = 10;
+//! let random = match rng.generate(10) {
+//!     Ok(r) => r,
+//!     Err(e) => panic!("An error occurred: {}", e)
+//! };
+//!
+//! assert_eq!(random.len(), 10);
+//!
+//! // generating a random salt value SALT_LEN long
+//! let random_salt = match rng.generate_salt() {
+//!     Ok(s) => s,
+//!     Err(e) => panic!("An error occurred: {}", e)
+//! };
+//!
+//! assert!(!random_salt.is_empty());
+//!
+//! // generating a random nonce value NONCE_LEN long
+//! let random_nonce = match rng.generate_nonce() {
+//!     Ok(n) => n,
+//!     Err(e) => panic!("An error occurred: {}", e)
+//! };
+//!
+//! assert!(!random_nonce.is_empty());
+//! ```
 
 
 use aws_lc_rs::rand::{self, SecureRandom};
@@ -73,3 +111,47 @@ impl RandomNumberGenerator for Rng {
         Ok(val)
     }
 }
+
+// unit testing [[[
+#[cfg(test)]
+mod tests {
+    use super::{CryptoErr, RandomNumberGenerator, Rng};
+
+    /// Tests that `generate` actually generates a value of the desired length
+    #[test]
+    fn generate_fill() -> Result<(), CryptoErr> {
+        let rng = Rng::new();
+        let len = 10;
+
+        let val = rng.generate(len)?;
+
+        assert_eq!(val.len(), len);
+
+        Ok(())
+    }
+
+    /// Tests that `generate` does not always return the same value
+    #[test]
+    fn generate_ne() {
+        let rng = Rng::new();
+        let len = 10;
+
+        let val1 = match rng.generate(len) {
+            Ok(v) => v,
+            Err(_) => { 
+                print!("unable to generate val1");
+                return;
+            }
+        };
+        let val2 = match rng.generate(len) {
+            Ok(v) => v,
+            Err(_) => {
+                print!("unable to generate val2");
+                return;
+            }
+        };
+
+        assert_ne!(val1, val2);
+    }
+}
+// ]]]
