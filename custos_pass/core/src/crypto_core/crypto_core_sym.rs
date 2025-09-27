@@ -5,11 +5,12 @@
 use super::{
     crypto_core_hashing::CryptoCoreHashing,
     sym_enc_res::SymEncRes,
+    RandomNumberGenerator, SecureRandom,
     CryptoErr, CryptoProvider, NONCE_LEN, SALT_LEN, SHA512_OUTPUT_LEN, SecureBytes
 };
 
 use crypto::{
-    rng::RandomNumberGenerator,
+    rng::SystemRandom,
     sym_enc::{KEY_LEN, SymmetricEnc, SymEncProvider}
 };
 
@@ -61,7 +62,7 @@ pub trait CryptoCoreSymEnc{
     ) -> Result<SecureBytes, CryptoErr>;
 }
 
-impl CryptoCoreSymEnc for CryptoProvider {
+impl <T: SecureRandom> CryptoCoreSymEnc for CryptoProvider<T> {
     fn encrypt (
         &mut self,
         key: &SecureBytes,
@@ -83,7 +84,7 @@ impl CryptoCoreSymEnc for CryptoProvider {
 
                 // checking whether enc_key has already been used with the current nonce value or not
                 for k in key_vec { 
-                    match CryptoProvider::verify_hash(enc_key.get_hash(), k.get_salt(), k.get_hash()) {
+                    match CryptoProvider::<SystemRandom>::verify_hash(enc_key.get_hash(), k.get_salt(), k.get_hash()) {
                         Ok(true) => {
                             // nonce has already been used with current nonce value
                             used_nonce = true;
@@ -123,7 +124,7 @@ impl CryptoCoreSymEnc for CryptoProvider {
 
         check_inputs(key, aad, enc)?;
 
-        let enc_key = CryptoProvider::recompute_hash(key, key_salt, KEY_LEN);
+        let enc_key = CryptoProvider::<SystemRandom>::recompute_hash(key, key_salt, KEY_LEN)?;
 
         let plain = SymEncProvider::decrypt(&enc_key, aad, nonce, enc)?;
 

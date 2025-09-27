@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use crypto::{
     hash::{Hash, HashProvider, SALT_LEN, SHA512_OUTPUT_LEN},
-    rng::{RandomNumberGenerator, Rng},
+    rng::{RandomNumberGenerator, Rng, SecureRandom},
     sym_enc::NONCE_LEN,
     SecureBytes,
     CryptoErr
@@ -27,8 +27,8 @@ use crate::crypto_core::hash_val::HashVal;
 ///
 /// Only __one instance__ of this class must be created at a time to guarantee salt and nonce 
 /// reuse prevention.
-pub struct CryptoProvider {
-    rng: Rng,
+pub struct CryptoProvider<T: SecureRandom> {
+    rng: Rng<T>,
 
     /// Hash map storing all the keys that have ever been used for each salt value in the 
     /// key derivation function.
@@ -39,19 +39,19 @@ pub struct CryptoProvider {
     old_nonces: HashMap<[u8;NONCE_LEN], Vec<HashVal>>
 }
 
-impl CryptoProvider {
+impl <T: SecureRandom> CryptoProvider<T> {
     /// Initialize a new instance of CryptoProvider.
     ///
     /// # Returns 
     ///
     /// Returns `CryptoProvider` if no error occurs, `CryptoErr` otherwise
-    pub fn new_empty() -> Result<Self, CryptoErr> {
+    pub fn new_empty(rng: T) -> Result<Self, CryptoErr> {
         // checks if fips mode is enabled
         try_fips_mode().map_err(|_| CryptoErr)?;
 
         Ok( 
             CryptoProvider { 
-                rng: Rng::new(),
+                rng: Rng::new(rng),
                 old_salts: HashMap::new(),
                 old_nonces: HashMap::new()
             }
@@ -66,6 +66,7 @@ impl CryptoProvider {
     ///
     /// Returns `CryptoProvider` if no error occurs, `CryptoErr` otherwise
     pub fn new(
+        rng: T,
         old_salts: HashMap<[u8;SALT_LEN], Vec<HashVal>>,
         old_nonces: HashMap<[u8; NONCE_LEN], Vec<HashVal>>
     ) -> Result<Self, CryptoErr> {
@@ -74,7 +75,7 @@ impl CryptoProvider {
 
         Ok(
             CryptoProvider {
-                rng: Rng::new(),
+                rng: Rng::new(rng),
                 old_salts,
                 old_nonces
             }
