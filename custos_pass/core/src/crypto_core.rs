@@ -1,6 +1,19 @@
 //! # Crypto Core
 //!
 //! This module provides access to all the features of the cryptographic library.
+//!
+//! # Example 
+//! ```
+//! use core::crypto_core::CryptoProvider;
+//! use crypto::rng::SystemRandom;
+//! use std::collections::HashMap;
+//!
+//! // Initializing CryptoProvider with empty hash maps
+//! let cp = match CryptoProvider::new_empty(SystemRandom::new()) {
+//!     Ok(cp) => cp,
+//!     Err(_) => panic!("unable to create CryptoProvider")
+//! };
+//! ```
 
 pub mod sym_enc_res;
 pub mod hash_val;

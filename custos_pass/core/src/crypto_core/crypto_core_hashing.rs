@@ -5,10 +5,9 @@
 //! # Example
 //! ```
 //! use crypto::{
-//!     CryptoErr,
 //!     SecureBytes,
-//!     hash::{SALT_LEN, SHA512_OUTPUT_LEN},
-//!     rng::{Rng, SystemRandom}
+//!     hash::SHA512_OUTPUT_LEN,
+//!     rng::SystemRandom
 //! };
 //!
 //! use core::crypto_core::{CryptoProvider, crypto_core_hashing::CryptoCoreHashing};
