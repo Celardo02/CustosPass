@@ -15,10 +15,11 @@
 //!     CryptoErr,
 //!     SecureBytes,
 //!     sym_enc::{KEY_LEN, NONCE_LEN, SymEncProvider, SymmetricEnc},
-//!     rng::{Rng, RandomNumberGenerator}
+//!     rng::{Rng, RandomNumberGenerator, SystemRandom}
 //! };
+//! 
 //!
-//! let rng = Rng::new();
+//! let rng = Rng::new(SystemRandom::new());
 //! let key_bytes: [u8; KEY_LEN] = rng.generate(KEY_LEN).unwrap().try_into().unwrap();
 //! let key = SecureBytes::new(Vec::from(key_bytes));
 //! let nonce = rng.generate_nonce().unwrap();

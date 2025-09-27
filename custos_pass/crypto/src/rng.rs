@@ -8,11 +8,11 @@
 //!     CryptoErr,
 //!     hash::SALT_LEN,
 //!     sym_enc::NONCE_LEN,
-//!     rng::{Rng, RandomNumberGenerator}
+//!     rng::{Rng, RandomNumberGenerator, SystemRandom}
 //! };
 //!
 //! // create only one instance of Rng
-//! let rng = Rng::new();
+//! let rng = Rng::new(SystemRandom::new());
 //!
 //! // generating a random value with an arbitrary length
 //! let len = 10;
@@ -41,7 +41,7 @@
 //! ```
 
 
-use aws_lc_rs::rand::{self, SecureRandom};
+pub use aws_lc_rs::rand::{SecureRandom, SystemRandom};
 use crate::{
     CryptoErr,
     hash::SALT_LEN,
@@ -54,15 +54,15 @@ use crate::{
 ///
 /// Only __one instance__ of this class must be created at a time to guarantee secure number 
 /// generation.
-pub struct Rng {
+pub struct Rng<T: SecureRandom> {
     /// Cryptographically secure random number generator.
-    rng: rand::SystemRandom
+    rng: T
 }
 
-impl Rng {
-    pub fn new() -> Self {
+impl <T: SecureRandom> Rng<T> {
+    pub fn new(rng: T) -> Self {
         Rng {
-            rng: rand::SystemRandom::new()
+            rng
         }
     }
 }
@@ -79,7 +79,7 @@ pub trait RandomNumberGenerator {
 
 }
 
-impl RandomNumberGenerator for Rng {
+impl <T: SecureRandom> RandomNumberGenerator for Rng<T> {
     fn generate_salt(&self) -> Result<[u8; SALT_LEN], CryptoErr> {
 
         let salt: [u8; SALT_LEN] = self.generate(SALT_LEN)?
@@ -115,12 +115,12 @@ impl RandomNumberGenerator for Rng {
 // unit testing [[[
 #[cfg(test)]
 mod tests {
-    use super::{CryptoErr, RandomNumberGenerator, Rng};
+    use super::*;
 
     /// Tests that `generate` actually generates a value of the desired length
     #[test]
     fn generate_fill() -> Result<(), CryptoErr> {
-        let rng = Rng::new();
+        let rng = Rng::new(SystemRandom::new());
         let len = 10;
 
         let val = rng.generate(len)?;
@@ -133,7 +133,7 @@ mod tests {
     /// Tests that `generate` does not always return the same value
     #[test]
     fn generate_ne() {
-        let rng = Rng::new();
+        let rng = Rng::new(SystemRandom::new());
         let len = 10;
 
         let val1 = match rng.generate(len) {
