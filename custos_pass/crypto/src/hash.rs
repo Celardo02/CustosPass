@@ -97,8 +97,8 @@ pub struct HashProvider;
 impl Hash for HashProvider {
     fn derive_hash(key: &SecureBytes, salt: &[u8; SALT_LEN], out_len: usize) -> SecureBytes {
         // checking inputs
-        assert!(!key.unsecure().is_empty());
-        assert_ne!(out_len, 0);
+        assert!(!key.unsecure().is_empty(), "key is empty");
+        assert_ne!(out_len, 0, "out_len is 0");
 
         // in this case, no match is used as the argument is a non-zero constant
         let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
@@ -111,8 +111,8 @@ impl Hash for HashProvider {
 
     fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN], old_key: &SecureBytes) -> bool {
         // checking inputs
-        assert!(!new_key.unsecure().is_empty());
-        assert!(!old_key.unsecure().is_empty());
+        assert!(!new_key.unsecure().is_empty(), "new_key is empty");
+        assert!(!old_key.unsecure().is_empty(), "old_key is empty");
 
         // in this case, no match is used as the argument is a non-zero constant
         let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
@@ -158,7 +158,7 @@ mod tests {
         let len = 10;
         let sb = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], len);
 
-        assert_eq!(sb.unsecure().len(), len);
+        assert_eq!(sb.unsecure().len(), len, "returned hash does not have the desired length");
     }
 
     /// Tests that `derive_hash` returns the same hash value given the same `key`, `salt` and `len`
@@ -168,7 +168,7 @@ mod tests {
         let sb1 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], len);
         let sb2 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], len);
 
-        assert_eq!(sb1, sb2);
+        assert_eq!(sb1, sb2, "hash value changed in spite of giving the same imputs");
     }
 
     /// Tests that `derive_hash` returns a value which is different from `key`, even if the hash 
@@ -179,10 +179,10 @@ mod tests {
 
         let hash = HashProvider::derive_hash(&val, &[1u8; SALT_LEN], val.unsecure().len());
 
-        assert_ne!(val, hash);
+        assert_ne!(val, hash, "returned hash value is the same of the input key");
     }
 
-    /// Tests that `derive_hash` returns the a different hash value given the same `salt` and
+    /// Tests that `derive_hash` returns a different hash value given the same `salt` and
     /// `len`, but a different `key`
     #[test]
     fn derive_hash_diff_key() {
@@ -190,7 +190,7 @@ mod tests {
         let sb1 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test1")), &[1u8; SALT_LEN], len);
         let sb2 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test2")), &[1u8; SALT_LEN], len);
 
-        assert_ne!(sb1, sb2);
+        assert_ne!(sb1, sb2, "returned hash value is the same inspite of using a different key");
     }
 
     /// Tests that `derive_hash` returns the a different hash value given the same `key` and
@@ -201,7 +201,7 @@ mod tests {
         let sb1 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], len);
         let sb2 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[2u8; SALT_LEN], len);
 
-        assert_ne!(sb1, sb2);
+        assert_ne!(sb1, sb2, "returned hash value is the same inspite of using a different salt");
     }
 
     /// Tests that `derive_hash` returns the a different hash value given the same `key` and
@@ -211,7 +211,7 @@ mod tests {
         let sb1 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], 10);
         let sb2 = HashProvider::derive_hash(&SecureBytes::new(Vec::from("test")), &[1u8; SALT_LEN], 20);
 
-        assert_ne!(sb1, sb2);
+        assert_ne!(sb1, sb2, "returned hash is the same inspite of using a different length");
     }
 
     // ]]]
@@ -248,10 +248,10 @@ mod tests {
 
         let hash = HashProvider::derive_hash(&val, &salt, len);
 
-        assert!(HashProvider::verify_hash(&val, &salt, &hash));
+        assert!(HashProvider::verify_hash(&val, &salt, &hash), "old_key is not verified as new_key hash");
     }
 
-    /// Tests that `verify_hash` returns `false` if `old_key` is derived from a different key than
+    /// Tests that `verify_hash` returns `false` if `old_key` is derived from a different key from
     /// `new_key`, even with the same salt value
     #[test]
     fn verify_hash_false_diff_newkey () {
@@ -262,7 +262,7 @@ mod tests {
 
         let hash = HashProvider::derive_hash(&val1, &salt, len);
 
-        assert!(!HashProvider::verify_hash(&val2, &salt, &hash));
+        assert!(!HashProvider::verify_hash(&val2, &salt, &hash), "old_key is verified as new_key hash, even if it is not (different key)");
     }
 
     /// Tests that `verify_hash` returns `false` if `old_key` is derived from `new_key`, but with 
@@ -276,7 +276,7 @@ mod tests {
 
         let hash = HashProvider::derive_hash(&val, &salt1, len);
 
-        assert!(!HashProvider::verify_hash(&val, &salt2, &hash));
+        assert!(!HashProvider::verify_hash(&val, &salt2, &hash), "old_key is verified as new_key hash, even if it is not (different sal)");
     }
     // ]]]
 

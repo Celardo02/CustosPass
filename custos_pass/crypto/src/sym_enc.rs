@@ -72,11 +72,11 @@ impl SymEncProvider {
     ///
     /// Panics if `key` is not `KEY_LEN` long, `bytes` is empty or `aad` is not None and is empty
     fn check_inputs(key: &SecureBytes, aad: Option<&[u8]>, bytes: &SecureBytes) {
-        assert_eq!(key.unsecure().len(), KEY_LEN);
-        assert!(!bytes.unsecure().is_empty());
+        assert_eq!(key.unsecure().len(), KEY_LEN, "key is not KEY_LEN long");
+        assert!(!bytes.unsecure().is_empty(), "plaintext/chipertext is empty");
 
         if let Some(a) = aad { 
-            assert!(!a.is_empty());
+            assert!(!a.is_empty(), "aad is not None and empty");
         }
     }
 }
@@ -283,7 +283,7 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain with None aad")
         };
 
-        assert_ne!(enc, plain);
+        assert_ne!(enc, plain, "chipertext and plaintext are the same (None aad)");
 
         // testing with Some aad
         let enc2 = match SymEncProvider::encrypt(&key, Some([1u8;5].as_slice()), &nonce, &plain) {
@@ -291,8 +291,8 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain with Some aad")
         };
 
-        assert_ne!(enc2, plain);
-        assert_ne!(enc, enc2);
+        assert_ne!(enc2, plain, "chipertext and plaintext are the same (Some aad)");
+        assert_ne!(enc, enc2, "chiphertext with Some aad and chipertext with None aad are the same");
     }
 
     /// Tests that `encrypt` returns the same output given the same inputs
@@ -313,7 +313,7 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain the second time")
         };
 
-        assert_eq!(enc1, enc2);
+        assert_eq!(enc1, enc2, "ciphertext changed in spite of using the same inputs (with None aad)");
 
         // testing with Some aad
         let aad = Some([1u8;5].as_slice());
@@ -327,7 +327,7 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain the fourth time")
         };
 
-        assert_eq!(enc3, enc4);
+        assert_eq!(enc3, enc4, "ciphertext changed in spite of using the same inputs (with Some aad)");
     }
 
     /// Tests that `encrypt` returns a different output given the same inputs but the key
@@ -349,7 +349,7 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain the second time")
         };
 
-        assert_ne!(enc1, enc2);
+        assert_ne!(enc1, enc2, "ciphertext did not change in spite of changing the key (None aad)");
         
         // testing with Some aad
         let aad = Some([1u8; 5].as_slice());
@@ -363,7 +363,7 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain the second time")
         };
 
-        assert_ne!(enc3, enc4);
+        assert_ne!(enc3, enc4, "ciphertext did not change in spite of changing the key (Some aad)");
     }
 
     /// Tests that `encrypt` returns a different output given the same inputs but the aad
@@ -398,12 +398,12 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain the fourth time")
         };
 
-        assert_ne!(enc1, enc2);
-        assert_ne!(enc1, enc3);
-        assert_ne!(enc1, enc4);
-        assert_ne!(enc2, enc3);
-        assert_ne!(enc2, enc4);
-        assert_ne!(enc3, enc4);
+        assert_ne!(enc1, enc2, "aad1: ciphertext did not change in spite of changing the aad length");
+        assert_ne!(enc1, enc3, "aad1: ciphertext did not change in spite of changing the aad value");
+        assert_ne!(enc1, enc4, "aad1: ciphertext did not change in spite of changing the aad Option value");
+        assert_ne!(enc2, enc3, "aad2: ciphertext did not change in spite of changing the aad value");
+        assert_ne!(enc2, enc4, "aad2: ciphertext did not change in spite of changing the aad Option value");
+        assert_ne!(enc3, enc4, "aad3: ciphertext did not change in spite of changing the aad Option value");
     }
 
     /// Tests that `encrypt` returns a different output given the same inputs but the nonce
@@ -425,7 +425,7 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain the second time")
         };
 
-        assert_ne!(enc1, enc2);
+        assert_ne!(enc1, enc2, "ciphertext did not change in spite of changing the nonce (None aad)");
 
         // testing with Some aad
         let aad = Some([1u8; 5].as_slice());
@@ -439,7 +439,7 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain the fourth time")
         };
 
-        assert_ne!(enc3, enc4);
+        assert_ne!(enc3, enc4, "ciphertext did not change in spite of changing the nonce (Some aad)");
     }
 
     /// Tests that `encrypt` returns a different output given the same inputs but the plaintext
@@ -461,7 +461,7 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain the second time")
         };
 
-        assert_ne!(enc1, enc2);
+        assert_ne!(enc1, enc2, "ciphertext did not change in spite of changing the plaintext (None aad)");
 
         // testing with Some aad
         let aad = Some([1u8; 5].as_slice());
@@ -475,7 +475,7 @@ mod tests {
             Err(_) => panic!("unable to encrypt plain the second time")
         };
 
-        assert_ne!(enc3, enc4);
+        assert_ne!(enc3, enc4, "ciphertext did not change in spite of changing the plaintext (Some aad)");
     }
 
     // ]]]
@@ -556,7 +556,7 @@ mod tests {
             Err(_) => panic!("unable to decrypt enc")
         };
 
-        assert_eq!(plain, plain_res);
+        assert_eq!(plain, plain_res, "plaintext does not correspont to decrypted text (None aad)");
 
         // testing with Some aad
         let aad = Some([3u8;5].as_slice());
@@ -571,7 +571,7 @@ mod tests {
             Err(_) => panic!("unable to decrypt enc")
         };
 
-        assert_eq!(plain, plain_res2);
+        assert_eq!(plain, plain_res2, "plaintext does not correspont to decrypted text (Some aad)");
     }
 
     /// Tests that `decrypt` returns the same output given the same inputs
@@ -598,7 +598,7 @@ mod tests {
             Err(_) => panic!("unable to decrypt enc the second time")
         };
 
-        assert_eq!(plain1, plain2);
+        assert_eq!(plain1, plain2, "decrypt does not return the same output with the same inputs (None aad)");
 
         // testing with Some aad
         let aad = Some([1u8; 5].as_slice());
@@ -617,7 +617,7 @@ mod tests {
             Err(_) => panic!("unable to decrypt enc the fourth time")
         };
 
-        assert_eq!(plain3, plain4);
+        assert_eq!(plain3, plain4, "decrypt does not return the same output with the same inputs (Some aad)");
     }
 
     /// Tests that `decrypt` returns an error given the right inputs but the key

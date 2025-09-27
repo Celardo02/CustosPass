@@ -125,7 +125,7 @@ mod tests {
 
         let val = rng.generate(len)?;
 
-        assert_eq!(val.len(), len);
+        assert_eq!(val.len(), len, "rng.generate does not generate a value with the desired length");
 
         Ok(())
     }
@@ -138,20 +138,15 @@ mod tests {
 
         let val1 = match rng.generate(len) {
             Ok(v) => v,
-            Err(_) => { 
-                print!("unable to generate val1");
-                return;
-            }
-        };
-        let val2 = match rng.generate(len) {
-            Ok(v) => v,
-            Err(_) => {
-                print!("unable to generate val2");
-                return;
-            }
+            Err(_) =>  panic!("unable to generate val1")
         };
 
-        assert_ne!(val1, val2);
+        let val2 = match rng.generate(len) {
+            Ok(v) => v,
+            Err(_) => panic!("unable to generate val2")
+        };
+
+        assert_ne!(val1, val2, "rng.generate returned the same value");
     }
 }
 // ]]]
