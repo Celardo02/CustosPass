@@ -1,5 +1,5 @@
 //! # Core
 //!
-//! This library handles all the custosPass business logic
+//! This crate handles all the CustosPass business logic
 
 pub mod crypto_core;
