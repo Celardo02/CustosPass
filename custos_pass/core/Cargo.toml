@@ -4,5 +4,3 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aws-lc-rs = { version = "1.14.0", features = ["fips"] }
-crypto = { version = "0.1.0", path = "../crypto" }

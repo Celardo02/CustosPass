@@ -6,8 +6,8 @@
 //! ```
 //! use crypto::{
 //!     CryptoErr,
-//!     hash::SALT_LEN,
-//!     sym_enc::NONCE_LEN,
+//!     hashing::SALT_LEN,
+//!     symmetric::NONCE_LEN,
 //!     rng::{Rng, RandomNumberGenerator, SystemRandom}
 //! };
 //!
@@ -44,8 +44,8 @@
 pub use aws_lc_rs::rand::{SecureRandom, SystemRandom};
 use crate::{
     CryptoErr,
-    hash::SALT_LEN,
-    sym_enc::NONCE_LEN
+    hashing::SALT_LEN,
+    symmetric::NONCE_LEN
 };
 
 /// Allows to generate cryptographically secure random numbers.

@@ -174,10 +174,6 @@ dependencies = [
 [[package]]
 name = "core"
 version = "0.1.0"
-dependencies = [
- "aws-lc-rs",
- "crypto",
-]
 
 [[package]]
 name = "cpufeatures"

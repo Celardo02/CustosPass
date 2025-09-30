@@ -1,16 +1,15 @@
-//! # Crypto Core Hashing 
+//! # Hashing
 //!
-//! This submodule provides hashing capabilities to `CryptoProvider`.
+//! This module provides hashing functionality to `CryptoProvider`.
 //!
 //! # Example
 //! ```
 //! use crypto::{
-//!     SecureBytes,
-//!     hash::SHA512_OUTPUT_LEN,
-//!     rng::SystemRandom
+//!     CryptoProvider, 
+//!     hashing::{Hashing, SHA512_OUTPUT_LEN},
+//!     rng::SystemRandom,
+//!     SecureBytes
 //! };
-//!
-//! use core::crypto_core::{CryptoProvider, crypto_core_hashing::CryptoCoreHashing};
 //!
 //! let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
 //!     Ok(cp) => cp,
@@ -20,7 +19,7 @@
 //! let key = SecureBytes::new(Vec::from("key"));
 //! let out_len = SHA512_OUTPUT_LEN;
 //!
-//! let hash = match cp.compute_hash(&key, out_len) {
+//! let hash = match cp.derive_hash(&key, out_len) {
 //!     Ok(h) => h,
 //!     Err(_) => panic!("unable to compute the hash")
 //! };
@@ -33,43 +32,69 @@
 //! assert!(hash_check);
 //! ```
 
-use super::{
-    CryptoErr, CryptoProvider, SecureBytes,
-    Hash, HashMap, HashProvider, HashVal, SALT_LEN, SHA512_OUTPUT_LEN,
-    RandomNumberGenerator, SecureRandom
+pub use aws_lc_rs::digest::SHA512_OUTPUT_LEN;
+
+use crate::{
+    CryptoErr, CryptoProvider, HashMap, SecureBytes, 
+    rng::{RandomNumberGenerator, SecureRandom, SystemRandom}
 };
+use aws_lc_rs::pbkdf2;
+use std::num::NonZeroU32;
 
-impl <T: SecureRandom> CryptoProvider<T> {
-    /// Computes again an hash value.
-    ///
-    /// # Security Note
-    ///
-    /// This method do __NOT__ prevent salt resue, hence it is only meant to be used when an
-    /// already computed hash is needed and only the key and the salt from which it is
-    /// derived are known. Any other usage of this associated function may lead to security issues.
-    ///
-    /// # Parameters
-    ///
-    /// - `key`: key from which derive the hash. It must __NOT__ be empty
-    /// - `salt`: hash salt value
-    /// - `out_len`: hash length. It must __NOT__ be 0
-    ///
-    /// # Returns
-    ///
-    /// Returns a `SecureBytes` containing the hash value or `CryptoErr` if any error occurs.
-    pub(super) fn recompute_hash(key: &SecureBytes, salt: &[u8; SALT_LEN], out_len: usize) -> Result<SecureBytes, CryptoErr> {
-        if key.unsecure().is_empty() || out_len == 0 {
-            return Err(CryptoErr)
+// constants [[[
+
+/// KDF algorithm used by the module.
+const KDF_ALG: pbkdf2::Algorithm = pbkdf2::PBKDF2_HMAC_SHA512;
+
+/// KDF iteration factor used by the module. The iteration value is based on owasp's advice for
+/// PBKDF2_HMAC_SHA512 at the moment of writing (19th September 2025).
+/// (https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+const KDF_ITER_FACTOR: u32 = 210_000;
+
+/// Salt length in bytes.
+/// Doubling minimum salt size advised in NIST SP 800-132 (December 2010) while waiting for its
+/// revised version to be published.
+pub const SALT_LEN: usize = 64;
+
+// ]]]
+
+// HashVal [[[
+
+/// Contains an hash value and the salt used to compute it
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HashVal {
+    /// Hash of the key.
+    hash: SecureBytes,
+    /// Value used to salt `hash`.
+    salt: [u8; SALT_LEN]
+}
+
+impl HashVal {
+    /// Creates a new instance of `HashVal` with an hash value and the value used to salt it.
+    pub fn new(hash: SecureBytes, salt: [u8; SALT_LEN]) -> Self {
+        HashVal {
+            hash,
+            salt
         }
+    }
 
-        Ok(HashProvider::derive_hash(key, salt, out_len))
+    /// Returns the hash value.
+    pub fn get_hash(&self) -> &SecureBytes {
+        &self.hash
+    }
+
+    /// Returns the hash salt.
+    pub fn get_salt(&self) -> &[u8; SALT_LEN] {
+        &self.salt
     }
 }
 
-/// Define the hashing behavior offered by `core_crypto` module.
-pub trait CryptoCoreHashing {
+// ]]]
 
-    /// Computes the hash for `key` and stores the output in `out`.
+/// Defines the hashing behavior offered by `crypto` module.
+pub trait Hashing {
+
+    /// Derives the hash for `key`.
     ///
     /// # Parameters
     /// - `key`: input key to derive the hash from. It must __NOT__ be empty
@@ -77,8 +102,8 @@ pub trait CryptoCoreHashing {
     ///
     /// # Returns
     ///
-    /// Returns `HashVal` or `CryptoErr` if any error occurs.
-    fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr>;
+    /// Returns an `HashVal` containing the hash or `CryptoErr` if any error occurs.
+    fn derive_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr>;
 
     /// Verifies whether the hash of a provided key matches a previously derived one.
     ///
@@ -98,10 +123,42 @@ pub trait CryptoCoreHashing {
     fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<HashVal>>;
 }
 
-// CryptoCoreHashing for CryptoProvider [[[
+// CryptoProvider implementations [[[
 
-impl <T: SecureRandom> CryptoCoreHashing for CryptoProvider<T> {
-    fn compute_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr> {
+impl <T: SecureRandom> CryptoProvider<T> {
+    /// Computes an hash value.
+    ///
+    /// # Security Note
+    ///
+    /// This method do __NOT__ prevent salt reuse, hence reuse prevention must be handled by the caller method or
+    /// function. Any other usage of this associated function may lead to security issues.
+    ///
+    /// # Parameters
+    ///
+    /// - `key`: key from which derive the hash. It must __NOT__ be empty
+    /// - `salt`: hash salt value
+    /// - `out_len`: hash length. It must __NOT__ be 0
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SecureBytes` containing the hash value or `CryptoErr` if any error occurs.
+    pub(super) fn compute_hash(key: &SecureBytes, salt: &[u8; SALT_LEN], out_len: usize) -> Result<SecureBytes, CryptoErr> {
+        if key.unsecure().is_empty() || out_len == 0 {
+            return Err(CryptoErr)
+        }
+
+        // in this case, no match is used as the argument is a non-zero constant
+        let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
+        let mut out = SecureBytes::new(vec![0u8; out_len]);
+
+        pbkdf2::derive(KDF_ALG, iter, salt, key.unsecure(), out.unsecure_mut());
+
+        Ok(out)
+    }
+}
+
+impl <T: SecureRandom> Hashing for CryptoProvider<T> {
+    fn derive_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr> {
         // checking inputs
         if key.unsecure().is_empty() || out_len == 0 {
             return Err(CryptoErr)
@@ -109,27 +166,37 @@ impl <T: SecureRandom> CryptoCoreHashing for CryptoProvider<T> {
 
         let mut salt = self.rng.generate_salt()?; 
 
-        // checking whether the salt has already been used at all. Then, whether it has already
-        // been used with key argument.
-        if let Some(key_vec) = self.old_salts.get(&salt) {
-                while key_vec.iter().any(|k| HashProvider::verify_hash(
-                            &HashProvider::derive_hash(key, &salt, SHA512_OUTPUT_LEN), 
-                            k.get_salt(), 
-                            k.get_hash()
-                )
-            ) {
-                salt = self.rng.generate_salt()?; 
+        let mut used_salt = true;
+
+        let mut out = CryptoProvider::<SystemRandom>::compute_hash(key, &salt, out_len)?;
+
+        // checking whether the salt has already been used at all
+        while let Some(key_vec) = self.old_salts.get(&salt) && used_salt {
+            used_salt = false;
+
+
+            // checking whether key has already been used with the current salt value or not
+            for k in key_vec { 
+                match CryptoProvider::<SystemRandom>::verify_hash(&out, k.get_salt(), k.get_hash()) {
+                    Ok(true) => {
+                        // key has already been used with current salt value
+                        used_salt = true;
+                        salt = self.rng.generate_salt()?; 
+                        out = CryptoProvider::<SystemRandom>::compute_hash(key, &salt, out_len)?;
+                        // quitting the loop as no more old keys can match the current salt value
+                        break;
+                    },
+                    Ok(false) => {},
+                    Err(ce) => return Err(ce)
+                }
             }
         }
 
-        let out = HashProvider::derive_hash(key, &salt, out_len);
 
         // computing the hash of out to avoid salt reuse in the future
 
         let salt_old = self.rng.generate_salt()?;
-        // NOTE: the length of hash_old MUST be the same used as parameter in the derive associated
-        // function called in the while loop
-        let hash_old = HashProvider::derive_hash(&out, &salt_old, SHA512_OUTPUT_LEN);
+        let hash_old = CryptoProvider::<SystemRandom>::compute_hash(&out, &salt_old, SHA512_OUTPUT_LEN)?;
         let old_k = HashVal::new(hash_old, salt_old);
 
         self.old_salts.entry(salt)
@@ -147,7 +214,10 @@ impl <T: SecureRandom> CryptoCoreHashing for CryptoProvider<T> {
             return Err(CryptoErr)
         }
 
-        Ok(HashProvider::verify_hash(new_key, salt, old_key))
+        // in this case, no match is used as the argument is a non-zero constant
+        let iter = NonZeroU32::new(KDF_ITER_FACTOR).unwrap();
+        
+        Ok(pbkdf2::verify(KDF_ALG, iter, salt, new_key.unsecure(), old_key.unsecure()).is_ok())
     }
 
     fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<HashVal>> {
@@ -162,16 +232,16 @@ impl <T: SecureRandom> CryptoCoreHashing for CryptoProvider<T> {
 
 mod tests {
     use super::*;
-    use crypto::rng::SystemRandom;
+    use crate::rng::SystemRandom;
     use aws_lc_rs::test::rand::{FixedSliceSequenceRandom, FixedByteRandom};
     use core::cell::UnsafeCell;
 
-    // recompute_hash [[[
+    // compute_hash [[[
 
-    /// Tests if `recompute_hash` returns an error in case of empty key
+    /// Tests that `compute_hash` returns an error in case of empty key
     #[test]
-    fn recompute_hash_empty_key () {
-        match CryptoProvider::<SystemRandom>::recompute_hash(
+    fn compute_hash_empty_key () {
+        match CryptoProvider::<SystemRandom>::compute_hash(
             &SecureBytes::new(Vec::new()),
             &[1u8; SALT_LEN],
             10
@@ -181,10 +251,10 @@ mod tests {
         }
     }
     
-    /// Tests if `recompute_hash` returns an error if `out_len` is 0
+    /// Tests that `compute_hash` returns an error if `out_len` is 0
     #[test]
-    fn recompute_hash_0_outlen () {
-        match CryptoProvider::<SystemRandom>::recompute_hash(
+    fn compute_hash_0_outlen () {
+        match CryptoProvider::<SystemRandom>::compute_hash(
             &SecureBytes::new(Vec::from("test")),
             &[1u8; SALT_LEN],
             0
@@ -194,98 +264,98 @@ mod tests {
         }
     }
 
-    /// Tests if `recompute_hash` returns the same value given the same inputs
+    /// Tests that `compute_hash` returns the same value given the same inputs
     #[test]
-    fn recompute_hash_same_out () {
+    fn compute_hash_same_out () {
         let key = SecureBytes::new(Vec::from("test"));
         let salt = [1u8; SALT_LEN];
         let out_len = 10;
 
-        let h1 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, &salt, out_len) {
+        let h1 = match CryptoProvider::<SystemRandom>::compute_hash(&key, &salt, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h1")
         };
 
-        let h2 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, &salt, out_len) {
+        let h2 = match CryptoProvider::<SystemRandom>::compute_hash(&key, &salt, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h2")
         };
 
-        assert_eq!(h1,h2, "recompute_hash does not return the same output given the same inputs");
+        assert_eq!(h1,h2, "compute_hash does not return the same output given the same inputs");
     }
 
-    /// Tests if `recompute_hash` returns a different value given the same inputs, but the key
+    /// Tests that `compute_hash` returns a different value given the same inputs, but the key
     #[test]
-    fn recompute_hash_diff_key () {
+    fn compute_hash_diff_key () {
         let key1 = SecureBytes::new(Vec::from("test1"));
         let key2 = SecureBytes::new(Vec::from("test2"));
         let salt = [1u8; SALT_LEN];
         let out_len = 10;
 
-        let h1 = match CryptoProvider::<SystemRandom>::recompute_hash(&key1, &salt, out_len) {
+        let h1 = match CryptoProvider::<SystemRandom>::compute_hash(&key1, &salt, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h1")
         };
 
-        let h2 = match CryptoProvider::<SystemRandom>::recompute_hash(&key2, &salt, out_len) {
+        let h2 = match CryptoProvider::<SystemRandom>::compute_hash(&key2, &salt, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h2")
         };
 
-        assert_ne!(h1,h2, "recompute_hash returns the same value in spite of using a different key");
+        assert_ne!(h1,h2, "compute_hash returns the same value in spite of using a different key");
     }
 
-    /// Tests if `recompute_hash` returns a different value given the same inputs, but the salt
+    /// Tests that `compute_hash` returns a different value given the same inputs, but the salt
     #[test]
-    fn recompute_hash_diff_salt () {
+    fn compute_hash_diff_salt () {
         let key = SecureBytes::new(Vec::from("test"));
         let salt1 = [1u8; SALT_LEN];
         let salt2 = [2u8; SALT_LEN];
         let out_len = 10;
 
-        let h1 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, &salt1, out_len) {
+        let h1 = match CryptoProvider::<SystemRandom>::compute_hash(&key, &salt1, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h1")
         };
 
-        let h2 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, &salt2, out_len) {
+        let h2 = match CryptoProvider::<SystemRandom>::compute_hash(&key, &salt2, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h2")
         };
 
-        assert_ne!(h1,h2, "recompute_hash returns the same value in spite of using a different salt");
+        assert_ne!(h1,h2, "compute_hash returns the same value in spite of using a different salt");
     }
 
-    /// Tests if `recompute_hash` returns a different value given the same inputs, but the output
+    /// Tests that `compute_hash` returns a different value given the same inputs, but the output
     /// length 
     #[test]
-    fn recompute_hash_diff_outlen () {
+    fn compute_hash_diff_outlen () {
         let key = SecureBytes::new(Vec::from("test"));
         let salt = [1u8; SALT_LEN];
         let out_len1 = 10;
         let out_len2 = 20;
 
-        let h1 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, &salt, out_len1) {
+        let h1 = match CryptoProvider::<SystemRandom>::compute_hash(&key, &salt, out_len1) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h1")
         };
 
-        let h2 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, &salt, out_len2) {
+        let h2 = match CryptoProvider::<SystemRandom>::compute_hash(&key, &salt, out_len2) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h2")
         };
 
-        assert_ne!(h1,h2, "recompute_hash returns the same value in spite of using a different out_len");
+        assert_ne!(h1,h2, "compute_hash returns the same value in spite of using a different out_len");
     }
 
-    /// Tests if `recompute_hash` returns a `SecureBytes` of the desired length
+    /// Tests that `compute_hash` returns a `SecureBytes` of the desired length
     #[test]
-    fn recompute_hash_correct_outlen () {
+    fn compute_hash_correct_outlen () {
         let key = SecureBytes::new(Vec::from("test"));
         let salt = [1u8; SALT_LEN];
         let out_len = 10;
 
-        let h = match CryptoProvider::<SystemRandom>::recompute_hash(&key, &salt, out_len) {
+        let h = match CryptoProvider::<SystemRandom>::compute_hash(&key, &salt, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h1")
         };
@@ -293,14 +363,14 @@ mod tests {
         assert_eq!(h.unsecure().len(),out_len, "returned hash does not have the desired length");
     }
 
-    /// Tests if `recompute_hash` returns a value which is different from `key`, even if the hash
+    /// Tests that `compute_hash` returns a value which is different from `key`, even if the hash
     /// has the same length of `key`
     #[test]
-    fn recompute_hash_value () {
+    fn compute_hash_value () {
         let key = SecureBytes::new(Vec::from("test"));
         let salt = [1u8; SALT_LEN];
 
-        let h = match CryptoProvider::<SystemRandom>::recompute_hash(&key, &salt, key.unsecure().len()) {
+        let h = match CryptoProvider::<SystemRandom>::compute_hash(&key, &salt, key.unsecure().len()) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h1")
         };
@@ -310,41 +380,55 @@ mod tests {
 
     // ]]]
 
-    // compute_hash [[[
+    // derive_hash [[[
 
-    // Tests if `compute_hash` returns an error if `key` is empty
+    // Tests that `derive_hash` returns an error if `key` is empty
     #[test]
-    fn compute_hash_empty_key () {
+    fn derive_hash_empty_key () {
         let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
             Ok(cp) => cp,
             Err(_) => panic!("unable to create CryptoProvider")
         }; 
 
-        match cp.compute_hash(&SecureBytes::new(Vec::new()), 10) {
+        match cp.derive_hash(&SecureBytes::new(Vec::new()), 10) {
             Ok(_) => panic!("no error with empty key"),
             Err(_) => {}
         };
 
     }
 
-    // Tests if `compute_hash` returns an error if `out_len` is 0
+    // Tests that `derive_hash` returns an error if `out_len` is 0
     #[test]
-    fn compute_hash_0_outlen () {
+    fn derive_hash_0_outlen () {
         let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
             Ok(cp) => cp,
             Err(_) => panic!("unable to create CryptoProvider")
         }; 
 
-        match cp.compute_hash(&SecureBytes::new(Vec::from("key")), 0) {
+        match cp.derive_hash(&SecureBytes::new(Vec::from("key")), 0) {
             Ok(_) => panic!("no error with empty key"),
             Err(_) => {}
         };
 
     }
 
-    // Tests if `compute_hash` returns an `HashVal` containing an hash of the desired length
+    /// Tests that `derive_hash` returns an error if `key` is empty and `out_len` is 0
     #[test]
-    fn compute_hash_correct_outlen () {
+    fn derive_hash_empty_key_0_outlen () {
+        let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
+            Ok(cp) => cp,
+            Err(_) => panic!("unable to create CryptoProvider")
+        }; 
+
+        match cp.derive_hash(&SecureBytes::new(Vec::new()), 0) {
+            Ok(_) => panic!("no error with empty key and 0 out_len"),
+            Err(_) => {}
+        };
+    }
+
+    // Tests that `derive_hash` returns an `HashVal` containing an hash of the desired length
+    #[test]
+    fn derive_hash_correct_outlen () {
         
         let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
             Ok(cp) => cp,
@@ -354,7 +438,7 @@ mod tests {
         let key = SecureBytes::new(Vec::from("key"));
         let out_len = 100;
 
-        let h = match cp.compute_hash(&key, out_len) {
+        let h = match cp.derive_hash(&key, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h")
         };
@@ -362,9 +446,9 @@ mod tests {
         assert_eq!(h.get_hash().unsecure().len(), out_len, "HashVal.get_hash does not have the desired length");
     }
 
-    // Tests if `compute_hash` returns two different `HashVal` with the same inputs
+    // Tests that `derive_hash` returns two different `HashVal` with the same inputs
     #[test]
-    fn compute_hash_same_inputs () {
+    fn derive_hash_same_inputs () {
         
         let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
             Ok(cp) => cp,
@@ -374,23 +458,23 @@ mod tests {
         let key = SecureBytes::new(Vec::from("key"));
         let out_len = 100;
 
-        let h1 = match cp.compute_hash(&key, out_len) {
+        let h1 = match cp.derive_hash(&key, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h1")
         };
 
-        let h2 = match cp.compute_hash(&key, out_len) {
+        let h2 = match cp.derive_hash(&key, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h2")
         };
 
-        assert_ne!(h1, h2, "compute_hash does not return 2 differente values");
+        assert_ne!(h1, h2, "derive_hash does not return 2 differente values");
     }
 
-    // Tests if `compute_hash` returns an `HashVal` containing an hash that is different from
+    // Tests that `derive_hash` returns an `HashVal` containing an hash that is different from
     // `key`, even if it has the same length of `key`
     #[test]
-    fn compute_hash_value () {
+    fn derive_hash_value () {
         
         let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
             Ok(cp) => cp,
@@ -399,7 +483,7 @@ mod tests {
 
         let key = SecureBytes::new(vec![1u8; SHA512_OUTPUT_LEN]);
 
-        let h = match cp.compute_hash(&key, key.unsecure().len()) {
+        let h = match cp.derive_hash(&key, key.unsecure().len()) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h")
         };
@@ -407,11 +491,11 @@ mod tests {
         assert_ne!(h.get_hash(), &key, "HashVal and key are the same");
     }
 
-    // Tests if `compute_hash` updates `CryptoProvider` field `old_salts` properly after using for
+    // Tests that `derive_hash` updates `CryptoProvider` field `old_salts` properly after using for
     // the first time a salt, that is adding a new entry in the hash map with the salt as the key
     // and an `HashVal` containing the hash of the computed hash as value
     #[test]
-    fn compute_hash_new_salt () {
+    fn derive_hash_new_salt () {
 
         let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
             Ok(cp) => cp,
@@ -421,7 +505,7 @@ mod tests {
         let key = SecureBytes::new(vec![1u8; 32]);
         let out_len = SHA512_OUTPUT_LEN;
 
-        let h = match cp.compute_hash(&key, out_len) {
+        let h = match cp.derive_hash(&key, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h")
         };
@@ -432,7 +516,7 @@ mod tests {
 
                 assert_eq!(
                     key_vec[0].get_hash(), 
-                    &CryptoProvider::<SystemRandom>::recompute_hash(
+                    &CryptoProvider::<SystemRandom>::compute_hash(
                         h.get_hash(), 
                         key_vec[0].get_salt(), 
                         key_vec[0].get_hash().unsecure().len()
@@ -446,10 +530,10 @@ mod tests {
 
     }
 
-    // Tests if `old_salts` contains a different hash value from the output hash returned by 
-    // `compute_hash`
+    // Tests that `old_salts` contains a different hash value from the output hash returned by 
+    // `derive_hash`
     #[test]
-    fn compute_hash_diff_hash () {
+    fn derive_hash_diff_hash () {
 
         let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
             Ok(cp) => cp,
@@ -459,7 +543,7 @@ mod tests {
         let key = SecureBytes::new(vec![1u8; 32]);
         let out_len = SHA512_OUTPUT_LEN;
 
-        let h = match cp.compute_hash(&key, out_len) {
+        let h = match cp.derive_hash(&key, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h")
         };
@@ -478,11 +562,11 @@ mod tests {
 
     }
 
-    // Tests if `compute_hash` updates `CryptoProvider` field `old_salts` properly after using 
+    // Tests that `derive_hash` updates `CryptoProvider` field `old_salts` properly after using 
     // again a salt with a new key, that is adding a new `HashVal` in the `Vec` related to the
     // salt which contains the hash of the computed hash
     #[test]
-    fn compute_hash_same_salt () {
+    fn derive_hash_same_salt () {
 
         let fixed_bytes = FixedByteRandom { byte: 1 };
         let mut cp = match CryptoProvider::new_empty(fixed_bytes) {
@@ -494,12 +578,12 @@ mod tests {
         let key2 = SecureBytes::new(vec![3u8; 32]);
         let out_len = SHA512_OUTPUT_LEN;
 
-        let h1 = match cp.compute_hash(&key1, out_len) {
+        let h1 = match cp.derive_hash(&key1, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h1")
         };
 
-        let h2 = match cp.compute_hash(&key2, out_len) {
+        let h2 = match cp.derive_hash(&key2, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h2")
         };
@@ -510,7 +594,7 @@ mod tests {
 
                 assert_eq!(
                     key_vec[0].get_hash(), 
-                    &CryptoProvider::<SystemRandom>::recompute_hash(
+                    &CryptoProvider::<SystemRandom>::compute_hash(
                         h1.get_hash(), 
                         key_vec[0].get_salt(), 
                         key_vec[0].get_hash().unsecure().len()
@@ -520,7 +604,7 @@ mod tests {
 
                 assert_eq!(
                     key_vec[1].get_hash(), 
-                    &CryptoProvider::<SystemRandom>::recompute_hash(
+                    &CryptoProvider::<SystemRandom>::compute_hash(
                         h2.get_hash(), 
                         key_vec[1].get_salt(), 
                         key_vec[1].get_hash().unsecure().len()
@@ -534,14 +618,14 @@ mod tests {
 
     }
 
-    // Tests if `compute_hash` regenerate the salt value when it has already been used for a given
+    // Tests that `derive_hash` regenerate the salt value when it has already been used for a given
     // key
     #[test]
-    fn compute_hash_regen_salt () {
+    fn derive_hash_regen_salt () {
 
         let salt1 = [1u8; SALT_LEN];
-        let salt2 = [2u8; SALT_LEN];
         let salt_filler = [3u8; SALT_LEN];
+        let salt2 = [2u8; SALT_LEN];
         let fixed_seq = FixedSliceSequenceRandom {
             bytes: &[&salt1, &salt_filler, &salt1, &salt2, &salt_filler],
             current: UnsafeCell::new(0)
@@ -554,12 +638,12 @@ mod tests {
         let key = SecureBytes::new(vec![1u8; 32]);
         let out_len = SHA512_OUTPUT_LEN;
 
-        let h1 = match cp.compute_hash(&key, out_len) {
+        let h1 = match cp.derive_hash(&key, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h1")
         };
 
-        let h2 = match cp.compute_hash(&key, out_len) {
+        let h2 = match cp.derive_hash(&key, out_len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h2")
         };
@@ -568,7 +652,6 @@ mod tests {
     }
 
     // ]]]
-
 
     // verify_hash tests [[[
 
@@ -610,7 +693,7 @@ mod tests {
             Err(_) => panic!("unable to create CrytoProvider")
         };
 
-        let h = match cp.compute_hash(&val, len) {
+        let h = match cp.derive_hash(&val, len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h")
         };
@@ -634,7 +717,7 @@ mod tests {
             Err(_) => panic!("unable to create CrytoProvider")
         };
 
-        let h = match cp.compute_hash(&val1, len) {
+        let h = match cp.derive_hash(&val1, len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h")
         };
@@ -657,7 +740,7 @@ mod tests {
             Err(_) => panic!("unable to create CrytoProvider")
         };
 
-        let h = match cp.compute_hash(&val, len) {
+        let h = match cp.derive_hash(&val, len) {
             Ok(h) => h,
             Err(_) => panic!("unable to compute h")
         };

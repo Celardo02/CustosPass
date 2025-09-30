@@ -1,11 +1,17 @@
-//! # Crypto Core Sym 
+//! # Symmetric encryption
 //!
-//! This submodule provides symmetric encryption capabilities to `CryptoProvider`.
+//! This module provides symmetric encryption functionality to `CryptoProvider`.
 //!
 //! # Example
 //! ```
-//! use core::crypto_core::{CryptoProvider, crypto_core_sym::CryptoCoreSymEnc, sym_enc_res::SymEncRes};
-//! use crypto::{rng::SystemRandom, SecureBytes};
+//! use crypto::{
+//!     symmetric::{
+//!         Symmetric,
+//!         SymEncRes
+//!     },
+//!     rng::SystemRandom,
+//!     CryptoProvider, SecureBytes
+//! };
 //!
 //! let mut cp = match CryptoProvider::new_empty(SystemRandom::new()) {
 //!     Ok(cp) => cp,
@@ -29,26 +35,70 @@
 //! assert_eq!(plain_res, plain, "plaintext does not correspond to decrypted plaintext");
 //! ```
 
-use super::{
-    crypto_core_hashing::CryptoCoreHashing,
-    sym_enc_res::SymEncRes,
-    RandomNumberGenerator, SecureRandom,
-    CryptoErr, CryptoProvider, NONCE_LEN, SALT_LEN, SHA512_OUTPUT_LEN, SecureBytes
+use crate::{
+    hashing::{Hashing, SALT_LEN, SHA512_OUTPUT_LEN},
+    rng::{RandomNumberGenerator, SecureRandom, SystemRandom}, 
+    CryptoProvider, CryptoErr, SecureBytes
+};
+use aes_gcm::{
+    aead::{Aead, generic_array::GenericArray, KeyInit, Payload},
+    Aes256Gcm, Key
 };
 
-use crypto::{
-    rng::SystemRandom,
-    sym_enc::{KEY_LEN, SymmetricEnc, SymEncProvider}
-};
+// constants [[[
 
+/// symmetric key length in bytes
+pub const KEY_LEN: usize = 256 / 8 ;
 
-pub trait CryptoCoreSymEnc{
+/// nonce length in bytes
+pub const NONCE_LEN: usize = 96 / 8;
+
+// ]]]
+
+// SymEncRes [[[
+
+/// Contains the output of the symmetric encryption process
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SymEncRes {
+    enc: SecureBytes,
+    key_salt: [u8; SALT_LEN],
+    enc_nonce: [u8; NONCE_LEN]
+}
+
+impl SymEncRes {
+    /// Creates a new instance of `SymEncRes` with the encrypted text, the value used to salt the
+    /// encryption key and the nonce used during the encryption
+    pub fn new(enc: SecureBytes, key_salt: [u8; SALT_LEN], enc_nonce: [u8; NONCE_LEN]) -> Self {
+        SymEncRes {
+            enc,
+            key_salt,
+            enc_nonce
+        }
+    }
+
+    pub fn get_enc(&self) -> &SecureBytes {
+        &self.enc
+    }
+
+    pub fn get_key_salt(&self) -> &[u8; SALT_LEN] {
+        &self.key_salt
+    }
+
+    pub fn get_enc_nonce(&self) -> &[u8; NONCE_LEN] {
+        &self.enc_nonce
+    }
+}
+
+// ]]]
+
+// Defines the symmetric encryption behavior offered by `crypto` module.
+pub trait Symmetric{
     /// Encrypts `plain` using `key` and including `aad` in the process.
     ///
     /// # Security Note
     ///
-    /// `key` is not directly used as encryption key: the output of `compute_hash` in
-    /// `CryptoProvider` applied to it is used instead.
+    /// `key` is not directly used as encryption key: the output of `CryptoProvider.derive_hash`
+    /// applied to it is used instead.
     ///
     /// # Parameters
     ///
@@ -88,9 +138,9 @@ pub trait CryptoCoreSymEnc{
     ) -> Result<SecureBytes, CryptoErr>;
 }
 
-// CryptoCoreSymEnc for CryptoProvider [[[
+// Symmetric trait implementation for CryptoProvider [[[
 
-impl <T: SecureRandom> CryptoCoreSymEnc for CryptoProvider<T> {
+impl <T: SecureRandom> Symmetric for CryptoProvider<T> {
     fn encrypt (
         &mut self,
         key: &SecureBytes,
@@ -100,7 +150,7 @@ impl <T: SecureRandom> CryptoCoreSymEnc for CryptoProvider<T> {
 
         check_inputs(key, aad, plain)?;
 
-        let enc_key = self.compute_hash(key, KEY_LEN)?;
+        let enc_key = self.derive_hash(key, KEY_LEN)?;
 
         let mut nonce = self.rng.generate_nonce()?;
         
@@ -125,10 +175,24 @@ impl <T: SecureRandom> CryptoCoreSymEnc for CryptoProvider<T> {
             }
         }
 
-        let enc = SymEncProvider::encrypt(enc_key.get_hash(), aad, &nonce, plain)?;
+        let aes_key = Key::<Aes256Gcm>::from_slice(enc_key.get_hash().unsecure());
+
+        let cipher = Aes256Gcm::new(&aes_key);
+
+        let enc = match aad {
+            Some(a) => {
+                let payload = Payload {
+                    msg: plain.unsecure(),
+                    aad: a
+                };
+                // generic array can not panic as NONCE_LEN is enforced by nonce type
+                cipher.encrypt(GenericArray::from_slice(&nonce), payload)
+            },
+            None => cipher.encrypt(GenericArray::from_slice(&nonce), plain.unsecure())
+        }.map_err(|_| CryptoErr)?;
         
         // computing the hash of enc_key to avoid nonce reuse
-        let old_k = self.compute_hash(enc_key.get_hash(), SHA512_OUTPUT_LEN)?;
+        let old_k = self.derive_hash(enc_key.get_hash(), SHA512_OUTPUT_LEN)?;
 
         self.old_nonces.entry(nonce)
             // as is less likely to get the same nonce twice than getting a new one, clone method 
@@ -136,7 +200,7 @@ impl <T: SecureRandom> CryptoCoreSymEnc for CryptoProvider<T> {
             .and_modify(|key_vec| key_vec.push(old_k.clone()))
             .or_insert(vec![old_k]);
 
-        Ok(SymEncRes::new(enc, enc_key.get_salt().clone(), nonce))
+        Ok(SymEncRes::new(SecureBytes::new(enc), enc_key.get_salt().clone(), nonce))
     }
 
     fn decrypt (
@@ -149,11 +213,25 @@ impl <T: SecureRandom> CryptoCoreSymEnc for CryptoProvider<T> {
 
         check_inputs(key, aad, enc)?;
 
-        let enc_key = CryptoProvider::<SystemRandom>::recompute_hash(key, key_salt, KEY_LEN)?;
+        let enc_key = CryptoProvider::<SystemRandom>::compute_hash(key, key_salt, KEY_LEN)?;
 
-        let plain = SymEncProvider::decrypt(&enc_key, aad, nonce, enc)?;
+        let aes_key = Key::<Aes256Gcm>::from_slice(enc_key.unsecure());
 
-        Ok(plain)
+        let cipher = Aes256Gcm::new(&aes_key);
+
+        let plain = match aad {
+            Some(a) => {
+                let payload = Payload {
+                    msg: enc.unsecure(),
+                    aad: a
+                };
+                // generic array can not panic as NONCE_LEN is enforced by nonce type
+                cipher.decrypt(GenericArray::from_slice(nonce), payload)
+            },
+            None => cipher.decrypt(GenericArray::from_slice(nonce), enc.unsecure())
+        }.map_err(|_| CryptoErr)?;
+
+        Ok(SecureBytes::new(plain))
     }
 }
 
@@ -370,7 +448,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with None aad (enc1)")
         };
 
-        let enc_key1 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, enc1.get_key_salt(), KEY_LEN) {
+        let enc_key1 = match CryptoProvider::<SystemRandom>::compute_hash(&key, enc1.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek,
             Err(_) => panic!("unable to compute encryption key of enc1")
         };
@@ -380,7 +458,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with None aad (enc2)")
         };
 
-        let enc_key2 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, enc2.get_key_salt(), KEY_LEN) {
+        let enc_key2 = match CryptoProvider::<SystemRandom>::compute_hash(&key, enc2.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek,
             Err(_) => panic!("unable to compute encryption key of enc2")
         };
@@ -398,7 +476,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with Some aad (enc3)")
         };
 
-        let enc_key3 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, enc3.get_key_salt(), KEY_LEN) {
+        let enc_key3 = match CryptoProvider::<SystemRandom>::compute_hash(&key, enc3.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek,
             Err(_) => panic!("unable to compute encryption key of enc3")
         };
@@ -408,7 +486,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with Some aad (enc4)")
         };
 
-        let enc_key4 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, enc4.get_key_salt(), KEY_LEN) {
+        let enc_key4 = match CryptoProvider::<SystemRandom>::compute_hash(&key, enc4.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek,
             Err(_) => panic!("unable to compute encryption key of enc4")
         };
@@ -441,7 +519,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with None aad)")
         };
 
-        let enc_key = match CryptoProvider::<SystemRandom>::recompute_hash(&key, enc.get_key_salt(), KEY_LEN) {
+        let enc_key = match CryptoProvider::<SystemRandom>::compute_hash(&key, enc.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek, 
             Err(_) => panic!("unable to compute encryption key (enc_key)")
         };
@@ -452,7 +530,7 @@ mod testing {
 
                 assert_eq!(
                     key_vec[0].get_hash(),
-                    &CryptoProvider::<SystemRandom>::recompute_hash(
+                    &CryptoProvider::<SystemRandom>::compute_hash(
                         &enc_key, 
                         key_vec[0].get_salt(), 
                         key_vec[0].get_hash().unsecure().len()
@@ -473,7 +551,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with Some aad (enc2)")
         };
 
-        let enc_key2 = match CryptoProvider::<SystemRandom>::recompute_hash(&key, enc2.get_key_salt(), KEY_LEN) {
+        let enc_key2 = match CryptoProvider::<SystemRandom>::compute_hash(&key, enc2.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek, 
             Err(_) => panic!("unable to compute encryption key (enc_key2)")
         };
@@ -484,7 +562,7 @@ mod testing {
 
                 assert_eq!(
                     key_vec[0].get_hash(),
-                    &CryptoProvider::<SystemRandom>::recompute_hash(
+                    &CryptoProvider::<SystemRandom>::compute_hash(
                         &enc_key2, 
                         key_vec[0].get_salt(), 
                         key_vec[0].get_hash().unsecure().len()
@@ -520,7 +598,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with None aad (enc)")
         };
 
-        let enc_key = match CryptoProvider::<SystemRandom>::recompute_hash(&key, enc.get_key_salt(), KEY_LEN) {
+        let enc_key = match CryptoProvider::<SystemRandom>::compute_hash(&key, enc.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek, 
             Err(_) => panic!("unable to compute enc_key (none aad)")
         };
@@ -531,7 +609,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with None aad (enc2)")
         };
 
-        let enc_key2 = match CryptoProvider::<SystemRandom>::recompute_hash(&key2, enc2.get_key_salt(), KEY_LEN) {
+        let enc_key2 = match CryptoProvider::<SystemRandom>::compute_hash(&key2, enc2.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek, 
             Err(_) => panic!("unable to compute enc_key2 (none aad)")
         };
@@ -542,7 +620,7 @@ mod testing {
 
                 assert_eq!(
                     key_vec[0].get_hash(),
-                    &CryptoProvider::<SystemRandom>::recompute_hash(
+                    &CryptoProvider::<SystemRandom>::compute_hash(
                         &enc_key, 
                         key_vec[0].get_salt(), 
                         key_vec[0].get_hash().unsecure().len()
@@ -552,7 +630,7 @@ mod testing {
 
                 assert_eq!(
                     key_vec[1].get_hash(),
-                    &CryptoProvider::<SystemRandom>::recompute_hash(
+                    &CryptoProvider::<SystemRandom>::compute_hash(
                         &enc_key2, 
                         key_vec[1].get_salt(), 
                         key_vec[1].get_hash().unsecure().len()
@@ -574,7 +652,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with Some aad (enc3)")
         };
 
-        let enc_key3 = match CryptoProvider::<SystemRandom>::recompute_hash(&key3, enc3.get_key_salt(), KEY_LEN) {
+        let enc_key3 = match CryptoProvider::<SystemRandom>::compute_hash(&key3, enc3.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek, 
             Err(_) => panic!("unable to compute enc_key3 (some aad)")
         };
@@ -585,7 +663,7 @@ mod testing {
             Err(_) => panic!("unable to perform encryption with Some aad (enc4)")
         };
 
-        let enc_key4 = match CryptoProvider::<SystemRandom>::recompute_hash(&key4, enc4.get_key_salt(), KEY_LEN) {
+        let enc_key4 = match CryptoProvider::<SystemRandom>::compute_hash(&key4, enc4.get_key_salt(), KEY_LEN) {
             Ok(ek) => ek, 
             Err(_) => panic!("unable to compute enc_key4 (none aad)")
         };
@@ -596,7 +674,7 @@ mod testing {
 
                 assert_eq!(
                     key_vec[0].get_hash(),
-                    &CryptoProvider::<SystemRandom>::recompute_hash(
+                    &CryptoProvider::<SystemRandom>::compute_hash(
                         &enc_key3, 
                         key_vec[0].get_salt(), 
                         key_vec[0].get_hash().unsecure().len()
@@ -606,7 +684,7 @@ mod testing {
 
                 assert_eq!(
                     key_vec[1].get_hash(),
-                    &CryptoProvider::<SystemRandom>::recompute_hash(
+                    &CryptoProvider::<SystemRandom>::compute_hash(
                         &enc_key4, 
                         key_vec[1].get_salt(), 
                         key_vec[1].get_hash().unsecure().len()
