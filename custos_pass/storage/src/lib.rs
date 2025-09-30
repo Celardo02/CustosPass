@@ -1,6 +1,6 @@
 //! # Storage
 //!
-//! This library contains all the traits, structures and persistence logic of the CustosPass project.
+//! This crate contains all the traits, structures and persistence logic of the CustosPass project.
 
 pub mod master_password;
 
