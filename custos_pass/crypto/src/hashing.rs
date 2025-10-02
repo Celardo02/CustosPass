@@ -60,7 +60,7 @@ pub const SALT_LEN: usize = 64;
 
 // HashVal [[[
 
-/// Contains an hash value and the salt used to compute it
+/// Contains an hash value and the salt used to compute it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HashVal {
     /// Hash of the key.
@@ -71,11 +71,19 @@ pub struct HashVal {
 
 impl HashVal {
     /// Creates a new instance of `HashVal` with an hash value and the value used to salt it.
-    pub fn new(hash: SecureBytes, salt: [u8; SALT_LEN]) -> Self {
-        HashVal {
+    /// 
+    /// # Returns
+    ///
+    /// Returns a `HashVal` if `hash` is not empty, `CryptoErr` otherwise.
+    pub fn new(hash: SecureBytes, salt: [u8; SALT_LEN]) -> Result<Self, CryptoErr> {
+        if hash.unsecure().is_empty() {
+            return Err(CryptoErr);
+        }
+
+        Ok(HashVal {
             hash,
             salt
-        }
+        })
     }
 
     /// Returns the hash value.
@@ -153,6 +161,7 @@ impl <T: SecureRandom> CryptoProvider<T> {
 
         pbkdf2::derive(KDF_ALG, iter, salt, key.unsecure(), out.unsecure_mut());
 
+
         Ok(out)
     }
 }
@@ -197,7 +206,7 @@ impl <T: SecureRandom> Hashing for CryptoProvider<T> {
 
         let salt_old = self.rng.generate_salt()?;
         let hash_old = CryptoProvider::<SystemRandom>::compute_hash(&out, &salt_old, SHA512_OUTPUT_LEN)?;
-        let old_k = HashVal::new(hash_old, salt_old);
+        let old_k = HashVal::new(hash_old, salt_old)?;
 
         self.old_salts.entry(salt)
             // as is less likely to get the same salt twice than getting a new one, clone method 
@@ -205,7 +214,7 @@ impl <T: SecureRandom> Hashing for CryptoProvider<T> {
             .and_modify(|key_vec| key_vec.push(old_k.clone()))
             .or_insert(vec![old_k]);
 
-        Ok(HashVal::new(out, salt))
+        HashVal::new(out, salt)
     }
 
     fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> Result<bool, CryptoErr> {
@@ -235,6 +244,26 @@ mod tests {
     use crate::rng::SystemRandom;
     use aws_lc_rs::test::rand::{FixedSliceSequenceRandom, FixedByteRandom};
     use core::cell::UnsafeCell;
+
+    // HashVal [[[
+    /// Tests that `HashVal` can only be created with a non-empty hash
+    #[test]
+    fn hash_val() {
+        let salt = [1u8; SALT_LEN];
+        let h1 = SecureBytes::new(Vec::new());
+        let h2 = SecureBytes::new(Vec::from("hash"));
+
+        match HashVal::new(h1, salt.clone()) {
+            Ok(_) => panic!("no error with empty hash"),
+            Err(_) => {}
+        };
+
+        match HashVal::new(h2, salt) {
+            Ok(_) => {},
+            Err(_) => panic!("unable to store an hash value")
+        };
+    }
+    // ]]]
 
     // compute_hash [[[
 

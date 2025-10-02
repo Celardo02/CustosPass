@@ -67,13 +67,21 @@ pub struct SymEncRes {
 
 impl SymEncRes {
     /// Creates a new instance of `SymEncRes` with the encrypted text, the value used to salt the
-    /// encryption key and the nonce used during the encryption
-    pub fn new(enc: SecureBytes, key_salt: [u8; SALT_LEN], enc_nonce: [u8; NONCE_LEN]) -> Self {
-        SymEncRes {
+    /// encryption key and the nonce used during the encryption.
+    ///
+    /// # Returns 
+    ///
+    /// Returns `SymEncRes` if `enc` is not empty, `CryptoErr` otherwise.
+    pub fn new(enc: SecureBytes, key_salt: [u8; SALT_LEN], enc_nonce: [u8; NONCE_LEN]) -> Result<Self, CryptoErr> {
+        if enc.unsecure().is_empty() {
+            return Err(CryptoErr);
+        }
+
+        Ok(SymEncRes {
             enc,
             key_salt,
             enc_nonce
-        }
+        })
     }
 
     pub fn get_enc(&self) -> &SecureBytes {
@@ -200,7 +208,7 @@ impl <T: SecureRandom> Symmetric for CryptoProvider<T> {
             .and_modify(|key_vec| key_vec.push(old_k.clone()))
             .or_insert(vec![old_k]);
 
-        Ok(SymEncRes::new(SecureBytes::new(enc), enc_key.get_salt().clone(), nonce))
+        SymEncRes::new(SecureBytes::new(enc), enc_key.get_salt().clone(), nonce)
     }
 
     fn decrypt (
@@ -274,6 +282,27 @@ mod testing {
     use aws_lc_rs::test::rand::{FixedByteRandom, FixedSliceSequenceRandom};
     use std::collections::HashMap;
     use core::cell::UnsafeCell;
+
+    // SymEncRes [[[
+    /// Tests that `SymEncRes` can only be created with a non-empty `enc` value
+    #[test]
+    fn sym_enc_res() {
+        let enc1 = SecureBytes::new(Vec::new());
+        let enc2 = SecureBytes::new(Vec::from("enc"));
+        let ks = [1u8; SALT_LEN];
+        let en = [2u8; NONCE_LEN];
+
+        match SymEncRes::new(enc1, ks.clone(), en.clone()) {
+            Ok(_) => panic!("no error with an empty enc field"),
+            Err(_) => {}
+        };
+
+        match SymEncRes::new(enc2, ks, en) {
+            Ok(_) => {},
+            Err(_) => panic!("unable to store a symmetric encryption result")
+        };
+    }
+    // ]]]
 
     // encrypt [[[
 
