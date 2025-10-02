@@ -5,11 +5,12 @@
 //! # Example 
 //! ```
 //! use crypto::{
-//!     CryptoErr,
 //!     hashing::SALT_LEN,
 //!     symmetric::NONCE_LEN,
 //!     rng::{Rng, RandomNumberGenerator, SystemRandom}
 //! };
+//!
+//! use error::{Err, ErrSrc};
 //!
 //! // create only one instance of Rng
 //! let rng = Rng::new(SystemRandom::new());
@@ -43,7 +44,7 @@
 
 pub use aws_lc_rs::rand::{SecureRandom, SystemRandom};
 use crate::{
-    CryptoErr,
+    Err, ErrSrc, ERR_DESCR,
     hashing::SALT_LEN,
     symmetric::NONCE_LEN
 };
@@ -68,19 +69,19 @@ impl <T: SecureRandom> Rng<T> {
 }
 
 pub trait RandomNumberGenerator {
-    /// Returns a random bytes `Vec` with the desired length or `CryptoErr`.
-    fn generate(&self, len: usize) -> Result<Vec<u8>, CryptoErr>;
+    /// Returns a random bytes `Vec` with the desired length or `Err`.
+    fn generate(&self, len: usize) -> Result<Vec<u8>, Err>;
 
-    /// Wrapper of `generate` method that returns a random salt value or `CryptoErr`.
-    fn generate_salt(&self) -> Result<[u8; SALT_LEN], CryptoErr>;
+    /// Wrapper of `generate` method that returns a random salt value or `Err`.
+    fn generate_salt(&self) -> Result<[u8; SALT_LEN], Err>;
 
-    /// Wrapper of `generate` method that returns a random nonce value or `CryptoErr`.
-    fn generate_nonce(&self) -> Result<[u8; NONCE_LEN], CryptoErr>;
+    /// Wrapper of `generate` method that returns a random nonce value or `Err`.
+    fn generate_nonce(&self) -> Result<[u8; NONCE_LEN], Err>;
 
 }
 
 impl <T: SecureRandom> RandomNumberGenerator for Rng<T> {
-    fn generate_salt(&self) -> Result<[u8; SALT_LEN], CryptoErr> {
+    fn generate_salt(&self) -> Result<[u8; SALT_LEN], Err> {
 
         let salt: [u8; SALT_LEN] = self.generate(SALT_LEN)?
             .try_into()
@@ -91,8 +92,8 @@ impl <T: SecureRandom> RandomNumberGenerator for Rng<T> {
         Ok(salt)
     }
 
-    /// Returns a random nonce value or `CryptoErr`.
-    fn generate_nonce(&self) -> Result<[u8; NONCE_LEN], CryptoErr> {
+    /// Returns a random nonce value or `Err`.
+    fn generate_nonce(&self) -> Result<[u8; NONCE_LEN], Err> {
         
         let nonce: [u8; NONCE_LEN] = self.generate(NONCE_LEN)?
             .try_into()
@@ -103,10 +104,10 @@ impl <T: SecureRandom> RandomNumberGenerator for Rng<T> {
         Ok(nonce)
     }
 
-    fn generate(&self, len: usize) -> Result<Vec<u8>, CryptoErr> {
+    fn generate(&self, len: usize) -> Result<Vec<u8>, Err> {
         let mut val = vec![0u8; len];
 
-        self.rng.fill(&mut val)?;
+        self.rng.fill(&mut val).map_err(|_| Err::new(ERR_DESCR, ErrSrc::Crypto))?;
 
         Ok(val)
     }
@@ -119,7 +120,7 @@ mod tests {
 
     /// Tests that `generate` actually generates a value of the desired length
     #[test]
-    fn generate_fill() -> Result<(), CryptoErr> {
+    fn generate_fill() -> Result<(), Err> {
         let rng = Rng::new(SystemRandom::new());
         let len = 10;
 

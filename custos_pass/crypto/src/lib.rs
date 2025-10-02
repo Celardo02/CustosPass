@@ -24,7 +24,6 @@ pub mod rng;
 
 pub use secure_string::SecureBytes;
 
-use std::{error, fmt::{Display, Formatter, Result as Res}};
 use aws_lc_rs::try_fips_mode;
 use std::collections::HashMap;
 use crate::{
@@ -32,26 +31,9 @@ use crate::{
     rng::{Rng, SecureRandom},
     symmetric::NONCE_LEN
 };
+use error::{Err, ErrSrc};
 
-
-// CryptoErr [[[
-
-/// A generic error that does not leak any information.
-#[derive(Debug)]
-pub struct CryptoErr;
-
-impl Display for CryptoErr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Res {
-        write!(f, "Cryptographic error")
-    }
-}
-
-impl<E: error::Error> From<E> for CryptoErr {
-    fn from(_err: E) -> Self {
-        CryptoErr
-    }
-}
-// ]]]
+const ERR_DESCR: &str = "no description";
 
 // crypto provider [[[
 
@@ -79,10 +61,10 @@ impl <T: SecureRandom> CryptoProvider<T> {
     ///
     /// # Returns 
     ///
-    /// Returns `CryptoProvider` if no error occurs, `CryptoErr` otherwise
-    pub fn new_empty(rng: T) -> Result<Self, CryptoErr> {
+    /// Returns `CryptoProvider` if no error occurs, `Err` otherwise
+    pub fn new_empty(rng: T) -> Result<Self, Err> {
         // checks if fips mode is enabled
-        try_fips_mode().map_err(|_| CryptoErr)?;
+        try_fips_mode().map_err(|_| Err::new(ERR_DESCR, ErrSrc::Crypto))?;
 
         Ok( 
             CryptoProvider { 
@@ -99,14 +81,14 @@ impl <T: SecureRandom> CryptoProvider<T> {
     ///
     /// # Returns 
     ///
-    /// Returns `CryptoProvider` if no error occurs, `CryptoErr` otherwise
+    /// Returns `CryptoProvider` if no error occurs, `Err` otherwise
     pub fn new(
         rng: T,
         old_salts: HashMap<[u8;SALT_LEN], Vec<HashVal>>,
         old_nonces: HashMap<[u8; NONCE_LEN], Vec<HashVal>>
-    ) -> Result<Self, CryptoErr> {
+    ) -> Result<Self, Err> {
         // checks if fips mode is enabled
-        try_fips_mode().map_err(|_| CryptoErr)?;
+        try_fips_mode().map_err(|_| Err::new(ERR_DESCR, ErrSrc::Crypto))?;
 
         Ok(
             CryptoProvider {

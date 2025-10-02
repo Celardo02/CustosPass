@@ -35,7 +35,8 @@
 pub use aws_lc_rs::digest::SHA512_OUTPUT_LEN;
 
 use crate::{
-    CryptoErr, CryptoProvider, HashMap, SecureBytes, 
+    Err, ErrSrc, ERR_DESCR, 
+    CryptoProvider, HashMap, SecureBytes, 
     rng::{RandomNumberGenerator, SecureRandom, SystemRandom}
 };
 use aws_lc_rs::pbkdf2;
@@ -74,10 +75,10 @@ impl HashVal {
     /// 
     /// # Returns
     ///
-    /// Returns a `HashVal` if `hash` is not empty, `CryptoErr` otherwise.
-    pub fn new(hash: SecureBytes, salt: [u8; SALT_LEN]) -> Result<Self, CryptoErr> {
+    /// Returns a `HashVal` if `hash` is not empty, `Err` otherwise.
+    pub fn new(hash: SecureBytes, salt: [u8; SALT_LEN]) -> Result<Self, Err> {
         if hash.unsecure().is_empty() {
-            return Err(CryptoErr);
+            return Err(Err::new(ERR_DESCR, ErrSrc::Crypto));
         }
 
         Ok(HashVal {
@@ -110,8 +111,8 @@ pub trait Hashing {
     ///
     /// # Returns
     ///
-    /// Returns an `HashVal` containing the hash or `CryptoErr` if any error occurs.
-    fn derive_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr>;
+    /// Returns an `HashVal` containing the hash or `Err` if any error occurs.
+    fn derive_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, Err>;
 
     /// Verifies whether the hash of a provided key matches a previously derived one.
     ///
@@ -123,9 +124,9 @@ pub trait Hashing {
     /// 
     /// # Returns
     ///
-    /// Returns `true` if the hashes match, `false` if they do not, `CryptoErr` if either `new_key`
+    /// Returns `true` if the hashes match, `false` if they do not, `Err` if either `new_key`
     /// or `old_key` is empty.
-    fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> Result<bool, CryptoErr>;
+    fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> Result<bool, Err>;
 
     /// Returns all previously used keys for each salt.
     fn get_old_salts(&self) -> &HashMap<[u8;SALT_LEN], Vec<HashVal>>;
@@ -149,10 +150,10 @@ impl <T: SecureRandom> CryptoProvider<T> {
     ///
     /// # Returns
     ///
-    /// Returns a `SecureBytes` containing the hash value or `CryptoErr` if any error occurs.
-    pub(super) fn compute_hash(key: &SecureBytes, salt: &[u8; SALT_LEN], out_len: usize) -> Result<SecureBytes, CryptoErr> {
+    /// Returns a `SecureBytes` containing the hash value or `Err` if any error occurs.
+    pub(super) fn compute_hash(key: &SecureBytes, salt: &[u8; SALT_LEN], out_len: usize) -> Result<SecureBytes, Err> {
         if key.unsecure().is_empty() || out_len == 0 {
-            return Err(CryptoErr)
+            return Err(Err::new(ERR_DESCR, ErrSrc::Crypto))
         }
 
         // in this case, no match is used as the argument is a non-zero constant
@@ -167,10 +168,10 @@ impl <T: SecureRandom> CryptoProvider<T> {
 }
 
 impl <T: SecureRandom> Hashing for CryptoProvider<T> {
-    fn derive_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, CryptoErr> {
+    fn derive_hash(&mut self, key: &SecureBytes, out_len: usize) -> Result<HashVal, Err> {
         // checking inputs
         if key.unsecure().is_empty() || out_len == 0 {
-            return Err(CryptoErr)
+            return Err(Err::new(ERR_DESCR, ErrSrc::Crypto))
         }
 
         let mut salt = self.rng.generate_salt()?; 
@@ -217,10 +218,10 @@ impl <T: SecureRandom> Hashing for CryptoProvider<T> {
         HashVal::new(out, salt)
     }
 
-    fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> Result<bool, CryptoErr> {
+    fn verify_hash(new_key: &SecureBytes, salt: &[u8; SALT_LEN],  old_key: &SecureBytes) -> Result<bool, Err> {
         // checking inputs
         if new_key.unsecure().is_empty() || old_key.unsecure().is_empty() {
-            return Err(CryptoErr)
+            return Err(Err::new(ERR_DESCR, ErrSrc::Crypto))
         }
 
         // in this case, no match is used as the argument is a non-zero constant

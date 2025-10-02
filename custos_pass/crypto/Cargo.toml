@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["zeroize"] }
 aws-lc-rs = { version = "1.14.0", features = ["fips"] }
+error = { version = "0.1.0", path = "../error" }
 secure-string = "0.3.0"

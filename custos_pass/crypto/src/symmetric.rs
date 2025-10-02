@@ -36,9 +36,10 @@
 //! ```
 
 use crate::{
+    Err, ErrSrc, ERR_DESCR,
     hashing::{Hashing, SALT_LEN, SHA512_OUTPUT_LEN},
     rng::{RandomNumberGenerator, SecureRandom, SystemRandom}, 
-    CryptoProvider, CryptoErr, SecureBytes
+    CryptoProvider, SecureBytes
 };
 use aes_gcm::{
     aead::{Aead, generic_array::GenericArray, KeyInit, Payload},
@@ -71,10 +72,10 @@ impl SymEncRes {
     ///
     /// # Returns 
     ///
-    /// Returns `SymEncRes` if `enc` is not empty, `CryptoErr` otherwise.
-    pub fn new(enc: SecureBytes, key_salt: [u8; SALT_LEN], enc_nonce: [u8; NONCE_LEN]) -> Result<Self, CryptoErr> {
+    /// Returns `SymEncRes` if `enc` is not empty, `Err` otherwise.
+    pub fn new(enc: SecureBytes, key_salt: [u8; SALT_LEN], enc_nonce: [u8; NONCE_LEN]) -> Result<Self, Err> {
         if enc.unsecure().is_empty() {
-            return Err(CryptoErr);
+            return Err(Err::new(ERR_DESCR, ErrSrc::Crypto));
         }
 
         Ok(SymEncRes {
@@ -116,13 +117,13 @@ pub trait Symmetric{
     ///
     /// # Returns
     ///
-    /// Returns a `SymEncRes` if no error occurs, `CryptoErr` otherwise.
+    /// Returns a `SymEncRes` if no error occurs, `Err` otherwise.
     fn encrypt (
         &mut self,
         key: &SecureBytes,
         aad: Option<&[u8]>,
         plain: &SecureBytes 
-    ) -> Result<SymEncRes, CryptoErr>;
+    ) -> Result<SymEncRes, Err>;
 
     /// Decrypts `enc` using `key`, `nonce`, and including `aad` in the process.
     ///
@@ -136,14 +137,14 @@ pub trait Symmetric{
     ///
     /// # Returns
     ///
-    /// Returns a `SecureBytes` containig the plaintext if no error occurs, `CryptoErr` otherwise.
+    /// Returns a `SecureBytes` containig the plaintext if no error occurs, `Err` otherwise.
     fn decrypt (
         key: &SecureBytes,
         key_salt: &[u8; SALT_LEN],
         aad: Option<&[u8]>,
         nonce: &[u8; NONCE_LEN],
         enc: &SecureBytes
-    ) -> Result<SecureBytes, CryptoErr>;
+    ) -> Result<SecureBytes, Err>;
 }
 
 // Symmetric trait implementation for CryptoProvider [[[
@@ -154,7 +155,7 @@ impl <T: SecureRandom> Symmetric for CryptoProvider<T> {
         key: &SecureBytes,
         aad: Option<&[u8]>,
         plain: &SecureBytes 
-    ) -> Result<SymEncRes, CryptoErr> {
+    ) -> Result<SymEncRes, Err> {
 
         check_inputs(key, aad, plain)?;
 
@@ -197,7 +198,7 @@ impl <T: SecureRandom> Symmetric for CryptoProvider<T> {
                 cipher.encrypt(GenericArray::from_slice(&nonce), payload)
             },
             None => cipher.encrypt(GenericArray::from_slice(&nonce), plain.unsecure())
-        }.map_err(|_| CryptoErr)?;
+        }.map_err(|_| Err::new(ERR_DESCR, ErrSrc::Crypto))?;
         
         // computing the hash of enc_key to avoid nonce reuse
         let old_k = self.derive_hash(enc_key.get_hash(), SHA512_OUTPUT_LEN)?;
@@ -217,7 +218,7 @@ impl <T: SecureRandom> Symmetric for CryptoProvider<T> {
         aad: Option<&[u8]>,
         nonce: &[u8; NONCE_LEN],
         enc: &SecureBytes
-    ) -> Result<SecureBytes, CryptoErr> {
+    ) -> Result<SecureBytes, Err> {
 
         check_inputs(key, aad, enc)?;
 
@@ -237,7 +238,7 @@ impl <T: SecureRandom> Symmetric for CryptoProvider<T> {
                 cipher.decrypt(GenericArray::from_slice(nonce), payload)
             },
             None => cipher.decrypt(GenericArray::from_slice(nonce), enc.unsecure())
-        }.map_err(|_| CryptoErr)?;
+        }.map_err(|_| Err::new(ERR_DESCR, ErrSrc::Crypto))?;
 
         Ok(SecureBytes::new(plain))
     }
@@ -257,16 +258,16 @@ impl <T: SecureRandom> Symmetric for CryptoProvider<T> {
 /// - `key` is not empty
 /// - `aad` is `None` or `Some(a)` and `a` is not empty
 /// - `bytes` is not empty
-/// `CryptoErr` is returned otherwise.
-fn check_inputs(key: &SecureBytes, aad: Option<&[u8]>, bytes: &SecureBytes) -> Result<(), CryptoErr> {
+/// `Err` is returned otherwise.
+fn check_inputs(key: &SecureBytes, aad: Option<&[u8]>, bytes: &SecureBytes) -> Result<(), Err> {
     let mut res = Ok(());
 
     if key.unsecure().is_empty() || bytes.unsecure().is_empty() {
-        res = Err(CryptoErr);
+        res = Err(Err::new(ERR_DESCR, ErrSrc::Crypto));
     }
 
     if let Some(a) = aad && a.is_empty() {
-        res = Err(CryptoErr);
+        res = Err(Err::new(ERR_DESCR, ErrSrc::Crypto));
     }
 
     res
