@@ -2,6 +2,8 @@
 //!
 //! This crate contains all the traits, structures and persistence logic of the CustosPass project.
 
-pub mod master_password;
+pub mod pers_mst;
 
-pub mod credential_sets;
+pub use secure_string::SecureString;
+
+pub const SPEC_CHARS: [char; 10] = ['-', '+', '_', '&', '%', '@', '$', '?', '!', '#'];
