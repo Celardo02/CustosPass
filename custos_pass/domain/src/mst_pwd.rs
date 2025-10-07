@@ -8,12 +8,12 @@ use error::{Err, ErrSrc};
 
 /// Master password expiration time delta. It corresponds to 3 months expressed in seconds
 /// (assuming that each month has 30 days for simplicity).
-pub const MST_EXP: i64 = 3 * 30 * 24 * 60 * 60;
+const MST_EXP: i64 = 3 * 30 * 24 * 60 * 60;
 
 /// Defines the behavior of a struct storing master password data.
 pub trait MstPwd where Self: Sized{
     /// Creates a new master password instance with the given hash. The password will be valid for
-    /// `MST_EXP` seconds. Time measurments are based on UTC timeszone.
+    /// 3 months. Time measurments are based on UTC timeszone.
     fn new(hash: HashVal) -> Self;
 
     /// Creates a new master password instance with the given hash and exp_date value. Expiration date is
