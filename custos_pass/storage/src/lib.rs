@@ -4,6 +4,5 @@
 
 pub mod pers_mst;
 
-pub use secure_string::SecureString;
-
 pub const SPEC_CHARS: [char; 10] = ['-', '+', '_', '&', '%', '@', '$', '?', '!', '#'];
+pub const MIN_PWD_LEN: usize = 10;

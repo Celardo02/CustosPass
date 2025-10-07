@@ -8,4 +8,6 @@ chrono = "0.4.42"
 crypto = { version = "0.1.0", path = "../crypto" }
 domain = { version = "0.1.0", path = "../domain" }
 error = { version = "0.1.0", path = "../error" }
+regex = "1.11.3"
 secure-string = "0.3.0"
+zeroize = "1.8.2"
