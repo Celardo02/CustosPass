@@ -59,7 +59,6 @@ Each credential set must have:
     1. username
     2. e-mail
     3. free text, allowing any kind of note
-    4. user-defined labels
 
 ## 1.3 User Interfaces
 

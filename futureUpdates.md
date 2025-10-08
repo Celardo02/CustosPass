@@ -15,6 +15,8 @@ This file contains the features that I plan to implement in the future, organize
 
 ## Credential Sets 
 
+- **custom labels**: currently, credential sets are not grouped in any way. Users will be able to organize credential sets in groups, depending on the labels of each credentail set.
+- **custom labels**: currently, credential sets are not grouped in any way. Users will be able to organize credential sets in groups, depending on the labels of each credentail set.
 - **Custom expiration time**: currently, each credential set password has a fixed expiration time. Users will be able to customize it 
 - **Password copy authorization**: additional requirements may be enforced before allowing a password to be copied from the vault. Users will be able to opt-in to be asked to re-enter the master password for each password copy.
 - **Showing _free text_ and _password_ in plain text**: similar behavior as in _password copy authorization_ will be required before displaying _free text_ or _password_ fields in plain text
