@@ -28,7 +28,7 @@ pub trait MstPwd where Self: Sized{
     /// Returns an  `HashVal` containing the master password hash.
     fn get_hash_val(&self) -> &HashVal;
 
-    /// Sets a new master password hash and sets its expiration date t
+    /// Sets a new master password hash and updates its expiration date to be valid for 3 months
     ///
     /// # Parameters
     ///
