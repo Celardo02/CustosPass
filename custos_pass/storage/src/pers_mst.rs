@@ -20,24 +20,21 @@
 //! assert!(!pers.check_exp());
 //!
 //! // checking that pwd is the master password
-//! assert!(pers.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd).unwrap());
+//! assert!(pers.check_mst::<CryptoProvider<SystemRandom>>(&pwd).unwrap());
 //!
 //! // setting a new master password
 //! let new_pwd = SecureBytes::new(Vec::from("A_newly_created_master_password1"));
 //! pers.set_mst(new_pwd.clone(), &mut cp);
 //!
 //! // checking that the master password has been changed as expected
-//! assert!(pers.validate_pwd::<CryptoProvider<SystemRandom>>(&new_pwd).unwrap());
-//! assert!(!pers.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd).unwrap());
+//! assert!(pers.check_mst::<CryptoProvider<SystemRandom>>(&new_pwd).unwrap());
+//! assert!(!pers.check_mst::<CryptoProvider<SystemRandom>>(&pwd).unwrap());
 //! ```
 
-use crate::{MIN_PWD_LEN, SPEC_CHARS};
 use chrono::Utc;
 use crypto::{SecureBytes, hashing::{Hashing, HashVal, SHA512_OUTPUT_LEN}};
 use domain::mst_pwd::MstPwd;
 use error::{Err, ErrSrc};
-use regex::RegexSet;
-use zeroize::Zeroize;
 
 
 pub trait PersMst<M: MstPwd> {
@@ -69,7 +66,7 @@ pub trait PersMst<M: MstPwd> {
     /// Returns `()` if the master password was set successfully, `Err` otherwise.
     fn set_mst<H: Hashing>(&mut self, new_mst: SecureBytes, hash_provider: &mut H) -> Result<(), Err>;
 
-    /// Validates a given password against the master password hash.
+    /// Checks a given password against the master password hash.
     ///
     /// # Parameters
     ///
@@ -79,7 +76,7 @@ pub trait PersMst<M: MstPwd> {
     ///
     /// Returns `true` if `pwd` correspond to the master password, `false` if they do not, `Err` if
     /// `pwd` is empty.
-    fn validate_pwd<H: Hashing>(&self, pwd: &SecureBytes) -> Result<bool, Err>;
+    fn check_mst<H: Hashing>(&self, pwd: &SecureBytes) -> Result<bool, Err>;
 
     /// Returns old master password hashes an related salts.
     fn get_old_mst(&self) -> &Vec<HashVal>;
@@ -141,75 +138,13 @@ impl<M:MstPwd> PersMaster<M> {
         hash_provider: &mut H)
     -> Result<Self, Err> {
 
-        PersMaster::<M>::validate_mst(&mst_bytes)?;
+        domain::validate_pwd(&mst_bytes)?;
 
         let mst_hash = hash_provider.derive_hash(&mst_bytes, SHA512_OUTPUT_LEN)?;
 
         Ok(PersMaster::<M>::new(M::new(mst_hash), old_mst))
     }
 
-    /// Validates the master password string ensuring that it:
-    ///     - is at least 10 characters long
-    ///     - contains at least:
-    ///         + a capital letter
-    ///         + a lowercase letter
-    ///         + a number
-    ///         + a special character from `SPEC_CHARS`
-    ///
-    /// # Returns
-    ///
-    /// Returns `()` if `mst` is valid, an `Err` describing what went wrong otherwise.
-    fn validate_mst(mst: &SecureBytes) -> Result<(), Err> {
-        
-        // convertig new_mst to a string to perform validation
-        let mut mst_str = match String::from_utf8(mst.unsecure().to_vec()) {
-            Ok(mst) => mst,
-            Err(_) => return Err(Err::new("new master password is not a utf-8 string", ErrSrc::Storage))
-        };
-
-        if mst_str.chars().count() < MIN_PWD_LEN {
-            mst_str.zeroize();
-            return Err(Err::new(&format!("new master password must be at least {} characters long", MIN_PWD_LEN), ErrSrc::Storage));
-        }
-
-        // creating regular expression patterns set
-        let number = r"[0-9]+";
-        let capital = r"[A-Z]+";
-        let lower_case = r"[a-z]+";
-        let mut symbol = String::from(r"[");
-        for c in SPEC_CHARS {
-            symbol.push(c);
-        }
-        symbol += "]+";
-
-
-        let match_set = match RegexSet::new([number, capital, lower_case, &symbol]) {
-            Ok(rs) => rs,
-            Err(_) => { 
-                mst_str.zeroize();
-                return Err(Err::new(
-                    "unable to create the master password requirements checker",
-                    ErrSrc::Storage))
-            }
-        };
-
-        let match_res = match_set.matches(&mst_str);
-
-        mst_str.zeroize();
-
-        if !match_res.matched_all() {
-            let mut err_msg = format!("new master password must contain:\n\t- a capital letter\n\t- a lower case letter\n\t- a number\n\t- a special character between: ");
-            for c in SPEC_CHARS {
-                err_msg.push(c);
-                err_msg += ", ";
-            }
-
-            return Err(Err::new(&err_msg, ErrSrc::Storage));
-        }
-
-        Ok(())
-
-    }
 }
 
 // ]]]
@@ -227,7 +162,7 @@ impl <M:MstPwd> PersMst<M> for PersMaster<M> {
 
     fn set_mst<H: Hashing>(&mut self, new_mst: SecureBytes, hash_provider: &mut H) -> Result<(), Err> {
 
-        PersMaster::<M>::validate_mst(&new_mst)?;
+        domain::validate_pwd(&new_mst)?;
 
         if
             H::verify_hash(
@@ -258,7 +193,7 @@ impl <M:MstPwd> PersMst<M> for PersMaster<M> {
 
     }
 
-    fn validate_pwd<H: Hashing>(&self, pwd: &SecureBytes) -> Result<bool, Err> {
+    fn check_mst<H: Hashing>(&self, pwd: &SecureBytes) -> Result<bool, Err> {
         H::verify_hash(
             pwd,
             self.mst.get_hash_val().get_salt(),
@@ -342,116 +277,6 @@ mod tests {
     }
     // ]]]
 
-    // validate_mst [[[
-    
-    /// Tests that `validate_mst` returns `()` if the master password is valid
-    #[test]
-    fn validate_mst_valid () {
-        // looping on all capital letters
-        for letter in b'A' ..= b'Z' {
-            let mut mst_str = String::from("bcdefgh1_");
-            mst_str.push(letter as char);
-            let mst = SecureBytes::new(mst_str.as_bytes().to_vec());
-
-            assert!(
-                PersMaster::<Master>::validate_mst(&mst).is_ok(),
-                "error with a valid master password (letter {})", letter as char
-            );
-        }
-
-        // looping on all lower case letters
-        for letter in b'a' ..= b'z' {
-            let mut mst_str = String::from("BCDEFGH1_");
-            mst_str.push(letter as char);
-            let mst = SecureBytes::new(mst_str.as_bytes().to_vec());
-
-            assert!(
-                PersMaster::<Master>::validate_mst(&mst).is_ok(),
-                "error with a valid master password (letter {})", letter as char
-            );
-        }
-
-        // looping on all digits
-        for digit in 0 ..= 9 {
-            let mut mst_str = String::from("Abcdefgh_");
-            mst_str += &digit.to_string();
-            let mst = SecureBytes::new(mst_str.as_bytes().to_vec());
-
-            assert!(
-                PersMaster::<Master>::validate_mst(&mst).is_ok(),
-                "error with a valid master password (digit {})", digit
-            );
-        }
-
-        // looping on all symbols
-        for symbol in SPEC_CHARS {
-            let mut mst_str = String::from("Abcdefgh1");
-            mst_str.push(symbol);
-            let mst = SecureBytes::new(mst_str.as_bytes().to_vec());
-
-            assert!(
-                PersMaster::<Master>::validate_mst(&mst).is_ok(),
-                "error with a valid master password (symbol {})", symbol
-            );
-        }
-
-
-    }
-
-    /// Tests that `validate_mst` returns an error if the master password is shorter than `MIN_PWD_LEN` 
-    #[test]
-    fn validate_mst_shorter () {
-        let mst = SecureBytes::new(Vec::from("Abcdefg1_"));
-        
-        assert!(PersMaster::<Master>::validate_mst(&mst).is_err(), "no error with a short password");
-    }
-
-    /// Tests that `validate_mst` returns an error if the master password is not a utf-8 string
-    #[test]
-    fn validate_mst_no_str () {
-        let mst = SecureBytes::new(Vec::from([1u8;20]));
-        
-        assert!(PersMaster::<Master>::validate_mst(&mst).is_err(), "no error with a password that is not a string");
-    }
-
-    /// Tests that `validate_mst` returns an error if the master password does not contain a
-    /// capital letter
-    #[test]
-    fn validate_mst_no_lower () {
-        let mst = SecureBytes::new(Vec::from("abcdefgh1_"));
-        
-        assert!(PersMaster::<Master>::validate_mst(&mst).is_err(), "no error with a password missing a capital letter");
-    }
-
-    /// Tests that `validate_mst` returns an error if the master password does not contain a
-    /// lower case letter
-    #[test]
-    fn validate_mst_no_capital () {
-        let mst = SecureBytes::new(Vec::from("ABCDEFGH1_"));
-        
-        assert!(PersMaster::<Master>::validate_mst(&mst).is_err(), "no error with a password missing a lower case letter");
-    }
-
-    /// Tests that `validate_mst` returns an error if the master password does not contain a
-    /// number
-    #[test]
-    fn validate_mst_no_number () {
-        let mst = SecureBytes::new(Vec::from("Abcdefghi_"));
-        
-        assert!(PersMaster::<Master>::validate_mst(&mst).is_err(), "no error with a password missing a number");
-    }
-
-    /// Tests that `validate_mst` returns an error if the master password does not contain a
-    /// symbol
-    #[test]
-    fn validate_mst_no_symbol () {
-        let mst = SecureBytes::new(Vec::from("Abcdefgh1i"));
-        
-        assert!(PersMaster::<Master>::validate_mst(&mst).is_err(), "no error with a password missing a symbol");
-    }
-
-    // ]]]
-
     // new [[[
     /// Tests that `new` initialize `self.old_mst` when method argument is `None`
     #[test]
@@ -482,8 +307,6 @@ mod tests {
     // ]]]
 
     // new_with_bytes [[[
-
-    // passsword validation tests are skipped here as validate_mst is also tested
 
     /// Tests that `new_with_bytes` initialize `self.old_mst` when method argument is `None`
     #[test]
@@ -559,8 +382,6 @@ mod tests {
 
     // set_mst [[[
     
-    // passsword validation tests are skipped here as validate_mst is also tested
-
     /// Tests that `set_mst` actually set a new master password value
     #[test]
     fn set_mst_value() {
@@ -622,11 +443,11 @@ mod tests {
     }
     // ]]]
 
-    // validate_pwd [[[
+    // check_mst [[[
 
-    /// Tests that `validate_pwd` returns `true` when the provided master password is correct
+    /// Tests that `check_mst` returns `true` when the provided master password is correct
     #[test]
-    fn validate_pwd_true() {
+    fn check_mst_true() {
         let mut cp = CryptoProvider::new_empty(SystemRandom::new())
             .expect("unable to create CryptoProvider");
 
@@ -636,15 +457,15 @@ mod tests {
             .expect("unable to create PersMaster");
 
         assert!(
-            pm.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd).expect("unable to perform validation"),
+            pm.check_mst::<CryptoProvider<SystemRandom>>(&pwd).expect("unable to perform validation"),
             "unable to validate the correct master password"
         );
     }
 
 
-    /// Tests that `validate_pwd` returns `false` when the provided master password is correct
+    /// Tests that `check_mst` returns `false` when the provided master password is correct
     #[test]
-    fn validate_pwd_false() {
+    fn check_mst_false() {
         let mut cp = CryptoProvider::new_empty(SystemRandom::new())
             .expect("unable to create CryptoProvider");
 
@@ -655,7 +476,7 @@ mod tests {
             .expect("unable to create PersMaster");
 
         assert!(
-            !pm.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd2).expect("unable to perform validation"),
+            !pm.check_mst::<CryptoProvider<SystemRandom>>(&pwd2).expect("unable to perform validation"),
             "unable to validate the correct master password"
         );
     }

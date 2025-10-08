@@ -7,3 +7,5 @@ edition = "2024"
 chrono = "0.4.42"
 crypto = { version = "0.1.0", path = "../crypto" }
 error = { version = "0.1.0", path = "../error" }
+regex = "1.11.3"
+zeroize = "1.8.2"

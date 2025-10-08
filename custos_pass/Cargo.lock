@@ -261,6 +261,8 @@ dependencies = [
  "chrono",
  "crypto",
  "error",
+ "regex",
+ "zeroize",
 ]
 
 [[package]]
@@ -587,9 +589,7 @@ dependencies = [
  "crypto",
  "domain",
  "error",
- "regex",
  "secure-string",
- "zeroize",
 ]
 
 [[package]]
