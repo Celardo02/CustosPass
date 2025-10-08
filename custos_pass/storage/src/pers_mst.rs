@@ -9,28 +9,26 @@
 //! use domain::mst_pwd::Master;
 //!
 //! let pwd = SecureBytes::new(Vec::from("A_strong_password1"));
-//! let pwd_clone = pwd.clone();
 //! let mut cp = CryptoProvider::new_empty(SystemRandom::new())
 //!     .expect("unable to create CryptoProvider");
 //!
 //! // creating the storage layer
-//! let mut pers = PersMaster::<Master>::new_with_bytes(pwd, None, &mut cp)
+//! let mut pers = PersMaster::<Master>::new_with_bytes(pwd.clone(), None, &mut cp)
 //!     .expect("unable to create PersMaster");
 //!
 //! // checking that the newly created master password is not expired yet
 //! assert!(!pers.check_exp());
 //!
-//! // checking that pwd_clone is the master password
-//! assert!(pers.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd_clone).unwrap());
+//! // checking that pwd is the master password
+//! assert!(pers.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd).unwrap());
 //!
 //! // setting a new master password
 //! let new_pwd = SecureBytes::new(Vec::from("A_newly_created_master_password1"));
-//! let new_pwd_clone = new_pwd.clone();
-//! pers.set_mst(&new_pwd, &mut cp);
+//! pers.set_mst(new_pwd.clone(), &mut cp);
 //!
 //! // checking that the master password has been changed as expected
-//! assert!(pers.validate_pwd::<CryptoProvider<SystemRandom>>(&new_pwd_clone).unwrap());
-//! assert!(!pers.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd_clone).unwrap());
+//! assert!(pers.validate_pwd::<CryptoProvider<SystemRandom>>(&new_pwd).unwrap());
+//! assert!(!pers.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd).unwrap());
 //! ```
 
 use crate::{MIN_PWD_LEN, SPEC_CHARS};
@@ -69,7 +67,7 @@ pub trait PersMst<M: MstPwd> {
     /// # Returns
     ///
     /// Returns `()` if the master password was set successfully, `Err` otherwise.
-    fn set_mst<H: Hashing>(&mut self, new_mst: &SecureBytes, hash_provider: &mut H) -> Result<(), Err>;
+    fn set_mst<H: Hashing>(&mut self, new_mst: SecureBytes, hash_provider: &mut H) -> Result<(), Err>;
 
     /// Validates a given password against the master password hash.
     ///
@@ -227,19 +225,26 @@ impl <M:MstPwd> PersMst<M> for PersMaster<M> {
         &self.mst
     }
 
-    fn set_mst<H: Hashing>(&mut self, new_mst: &SecureBytes, hash_provider: &mut H) -> Result<(), Err> {
-
-        if self.old_mst.iter().any(
-            |pwd|
-            // both new_pwd and old_pwd arguments of verify hash can not be null: new_mst must be
-            // longer than MIN_PWD_LEN to get here, and old_mst content are SHA512_OUTPUT_LEN long
-            H::verify_hash(&new_mst, pwd.get_salt(), pwd.get_hash()).unwrap()
-        ){
-            return Err(Err::new("new master password is equal to an old one", ErrSrc::Storage));
-        }
-
+    fn set_mst<H: Hashing>(&mut self, new_mst: SecureBytes, hash_provider: &mut H) -> Result<(), Err> {
 
         PersMaster::<M>::validate_mst(&new_mst)?;
+
+        if
+            H::verify_hash(
+                &new_mst,
+                self.mst.get_hash_val().get_salt(),
+                self.mst.get_hash_val().get_hash()
+            // both new_pwd and old_pwd arguments of verify hash can not be null: new_mst must be
+            // longer than MIN_PWD_LEN to get here, and old_mst content are SHA512_OUTPUT_LEN long
+            ).unwrap()
+            ||
+            self.old_mst.iter().any(
+                |pwd|
+                H::verify_hash(&new_mst, pwd.get_salt(), pwd.get_hash()).unwrap()
+            )
+        {
+            return Err(Err::new("new master password is equal to an old one", ErrSrc::Storage));
+        }
 
         // creating new master password hash
         let new_mst_hash = hash_provider.derive_hash(&new_mst, SHA512_OUTPUT_LEN)?;
@@ -470,14 +475,15 @@ mod tests {
     #[test]
     fn new_mst() {
         let pwd = setup_mst_master();
-        let pwd2 = pwd.clone();
 
-        let pm = PersMaster::new(pwd, None);
-        assert_eq!(pm.mst.get_hash_val(), pwd2.get_hash_val(), "self.mst is not initialized to mst argument");
+        let pm = PersMaster::new(pwd.clone(), None);
+        assert_eq!(pm.mst.get_hash_val(), pwd.get_hash_val(), "self.mst is not initialized to mst argument");
     }
     // ]]]
 
     // new_with_bytes [[[
+
+    // passsword validation tests are skipped here as validate_mst is also tested
 
     /// Tests that `new_with_bytes` initialize `self.old_mst` when method argument is `None`
     #[test]
@@ -524,7 +530,7 @@ mod tests {
                 &sb,
                 pm.mst.get_hash_val().get_salt(),
                 pm.mst.get_hash_val().get_hash()
-            ).unwrap(),
+            ).expect("unable to verify sb hash"),
             "self.mst is not initialized with mst_bytes argument"
         );
     }
@@ -552,7 +558,10 @@ mod tests {
     // ]]]
 
     // set_mst [[[
-    ///Tests that `set_mst` actually set a new master password value
+    
+    // passsword validation tests are skipped here as validate_mst is also tested
+
+    /// Tests that `set_mst` actually set a new master password value
     #[test]
     fn set_mst_value() {
         let pwd = setup_mst_master();
@@ -562,19 +571,120 @@ mod tests {
         let mut cp = CryptoProvider::new_empty(SystemRandom::new())
             .expect("unable to create CryptoProvider");
 
-        pm.set_mst(&pwd2, &mut cp).expect("unable to set a new master password value");
+        pm.set_mst(pwd2.clone(), &mut cp).expect("unable to set a new master password value");
 
-        assert_ne!(pwd.get_hash_val(), pm.get_mst().get_hash_val(), "master password is still equal to the original one");
+        assert_ne!(pwd.get_hash_val(), pm.mst.get_hash_val(), "master password is still equal to the original one");
         assert!(
             CryptoProvider::<SystemRandom>::verify_hash(
                 &pwd2,
-                pm.get_mst().get_hash_val().get_salt(),
-                pm.get_mst().get_hash_val().get_hash()
-            ).expect("unable to verify pwd hash value"),
+                pm.mst.get_hash_val().get_salt(),
+                pm.mst.get_hash_val().get_hash()
+            ).expect("unable to verify pwd2 hash"),
             "new master password hash does not correspond to its value"
         );
 
     }
+
+    /// Tests that `set_mst` return an error when a password has already been used
+    #[test]
+    fn set_mst_used() {
+        let mut cp = CryptoProvider::new_empty(SystemRandom::new())
+            .expect("unable to create CryptoProvider");
+
+        let pwd = SecureBytes::new(Vec::from("A_master_password1"));
+        let pwd2 = SecureBytes::new(Vec::from("A_new_master_password1"));
+        let old = Some(vec![cp.derive_hash(&pwd2, SHA512_OUTPUT_LEN).expect("unable to derive pwd hash val")]);
+
+        let mut pm = PersMaster::<Master>::new_with_bytes(pwd.clone(), old, &mut cp)
+            .expect("unable to create PersMaster");
+
+        assert!(pm.set_mst(pwd, &mut cp).is_err(), "current master password has been set again");
+        assert!(pm.set_mst(pwd2, &mut cp).is_err(), "old master password value has been set again");
+    }
+
+    /// Tests that `set_mst` updates old_password `Vec` when a new password is set
+    #[test]
+    fn set_mst_update_old() {
+        let pwd = setup_mst_master();
+        let mut pm = PersMaster::new(pwd.clone(), None);
+
+        let pwd2 = SecureBytes::new(Vec::from("New_mst_value1"));
+        let mut cp = CryptoProvider::new_empty(SystemRandom::new())
+            .expect("unable to create CryptoProvider");
+
+        assert!(!pm.old_mst.contains(pwd.get_hash_val()));
+
+        pm.set_mst(pwd2, &mut cp)
+            .expect("unable to set the new master password");
+
+        assert!(pm.old_mst.contains(pwd.get_hash_val()));
+
+    }
     // ]]]
+
+    // validate_pwd [[[
+
+    /// Tests that `validate_pwd` returns `true` when the provided master password is correct
+    #[test]
+    fn validate_pwd_true() {
+        let mut cp = CryptoProvider::new_empty(SystemRandom::new())
+            .expect("unable to create CryptoProvider");
+
+        let pwd = SecureBytes::new(Vec::from("A_master_password1"));
+
+        let pm = PersMaster::<Master>::new_with_bytes(pwd.clone(), None, &mut cp)
+            .expect("unable to create PersMaster");
+
+        assert!(
+            pm.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd).expect("unable to perform validation"),
+            "unable to validate the correct master password"
+        );
+    }
+
+
+    /// Tests that `validate_pwd` returns `false` when the provided master password is correct
+    #[test]
+    fn validate_pwd_false() {
+        let mut cp = CryptoProvider::new_empty(SystemRandom::new())
+            .expect("unable to create CryptoProvider");
+
+        let pwd = SecureBytes::new(Vec::from("A_master_password1"));
+        let pwd2 = SecureBytes::new(Vec::from("A_new_master_password1"));
+
+        let pm = PersMaster::<Master>::new_with_bytes(pwd.clone(), None, &mut cp)
+            .expect("unable to create PersMaster");
+
+        assert!(
+            !pm.validate_pwd::<CryptoProvider<SystemRandom>>(&pwd2).expect("unable to perform validation"),
+            "unable to validate the correct master password"
+        );
+    }
+    // ]]]
+
+    /// Tests that `get_mst` returns the correct master password
+    #[test]
+    fn get_mst_value(){
+        let pwd = setup_mst_master();
+        let pm = PersMaster::new(pwd.clone(), None);
+
+        assert_eq!(pwd.get_hash_val(), pm.get_mst().get_hash_val(), "returned master password is incorrect");
+    }
+
+    /// Tests that `get_old_mst` returns the correct `Vec<HashVal>`
+    #[test]
+    fn get_old_mst_value(){
+        let pwd = SecureBytes::new(Vec::from("A_master_password1"));
+        let mut cp = CryptoProvider::new_empty(SystemRandom::new())
+            .expect("unable to create CryptoProvider");
+
+        let hv = cp.derive_hash(&SecureBytes::new(Vec::from("Another_mst_pwd1")), SHA512_OUTPUT_LEN)
+            .expect("unable to dervie hv value");
+
+        let old = Some(vec![hv.clone()]);
+        let pm = PersMaster::<Master>::new_with_bytes(pwd.clone(), old, &mut cp)
+            .expect("unable to create PersMaster");
+
+        assert_eq!(vec![hv], pm.old_mst, "returned master password is incorrect");
+    }
 }
 // ]]]
