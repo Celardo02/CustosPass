@@ -28,6 +28,7 @@ pub trait CredSet where Self: Sized{
     /// - `expiring`: credential set will be valid for 3 months if `true`; it will never
     /// expire otherwise. Expiration date is based on UTC timezone
     /// - `id`: credential set id. It must __NOT__ be empty
+    /// - `usr`: credential set username. If not `None`, it must __NOT__ be empty
     /// - `mail`: credential set e-mail. If not `None`, it must: 
     ///     - __NOT__ be empty
     ///     - follow the template _a@b.c_. A, b and c can have an arbitrary length and contain
@@ -37,7 +38,7 @@ pub trait CredSet where Self: Sized{
     /// # Returns
     ///
     /// Returns `Self` if `pwd` is valid and each argument is `None` or not empty; `Err` otherwise.
-    fn new(pwd: SecureBytes, expiring: bool, id: String, mail: Option<String>, notes: Option<String>) -> Result<Self, Err>;
+    fn new(pwd: SecureBytes, expiring: bool, id: String, usr: Option<String>, mail: Option<String>, notes: Option<String>) -> Result<Self, Err>;
 
     /// Creates a new credential set instance with a given expiration date.
     ///
@@ -54,6 +55,7 @@ pub trait CredSet where Self: Sized{
     /// Expiration date is based on UTC timezone and must __NOT__ predate or be equal to the
     /// creation date of the struct
     /// - `id`: credential set id. It must __NOT__ be empty
+    /// - `usr`: credential set username. If not `None`, it must __NOT__ be empty
     /// - `mail`: credential set e-mail. If not `None`, it must: 
     ///     - __NOT__ be empty
     ///     - follow the template _a@b.c_. A, b and c can have an arbitrary length and contain
@@ -64,7 +66,7 @@ pub trait CredSet where Self: Sized{
     ///
     /// Returns `Self` if `pwd` is valid, `exp_date` does not predate or is equal to
     /// the creation date of the struct and each of the other values is `None` or not empty; `Err` otherwise.
-    fn new_with_date(pwd: SecureBytes, expiring: Option<NaiveDate>, id: String, mail: Option<String>, notes: Option<String>) -> Result<Self, Err>;
+    fn new_with_date(pwd: SecureBytes, expiring: Option<NaiveDate>, id: String, usr: Option<String>, mail: Option<String>, notes: Option<String>) -> Result<Self, Err>;
 
     /// Returns the credential set password.
     fn get_pwd(&self) -> &SecureBytes;
@@ -106,6 +108,20 @@ pub trait CredSet where Self: Sized{
     /// Returns `()` if `id` is not empty, `Err` otherwise.
     fn set_id(&mut self, id: String) -> Result<(), Err>;
 
+    /// Returns the username related to the credential set if exist; `None` otherwise
+    fn get_usr(&self) -> &Option<String>;
+
+    /// Sets new credential set username. 
+    ///
+    /// # Parameters
+    ///
+    /// - `usr`: username. If not `None`, it must __NOT__ be empty
+    ///
+    /// # Returns
+    ///
+    /// Returns `()` if `usr` is not empty, `Err` otherwise.
+    fn set_usr(&mut self, usr: Option<String>) -> Result<(), Err>;
+
     /// Returns the credential set e-mail if exists; `None` otherwise.
     fn get_mail(&self) -> &Option<String>;
 
@@ -134,7 +150,7 @@ pub trait CredSet where Self: Sized{
     ///
     /// # Returns
     ///
-    /// Returns `()` if `tzt` is not empty, `Err` otherwise.
+    /// Returns `()` if `notes` is not empty, `Err` otherwise.
     fn set_notes(&mut self, notes: Option<String>) -> Result<(), Err>;
 }
 // ]]]
@@ -147,6 +163,7 @@ pub struct CredEntry {
     pwd: SecureBytes,
     exp_date: Option<NaiveDate>,
     id: String,
+    usr: Option<String>,
     mail: Option<String>,
     notes: Option<String>
 }
@@ -179,7 +196,7 @@ impl CredEntry {
 // impl CredSet for CredEntry [[[
 
 impl CredSet for CredEntry {
-    fn new(pwd: SecureBytes, expiring: bool, id: String, mail: Option<String>, notes: Option<String>) -> Result<Self, Err>{
+    fn new(pwd: SecureBytes, expiring: bool, id: String, usr: Option<String>, mail: Option<String>, notes: Option<String>) -> Result<Self, Err>{
 
         let exp;
         if expiring {
@@ -190,12 +207,12 @@ impl CredSet for CredEntry {
             exp = None
         }
 
-        CredEntry::new_with_date(pwd, exp, id, mail, notes)
+        CredEntry::new_with_date(pwd, exp, id, usr, mail, notes)
 
 
     }
 
-    fn new_with_date(pwd: SecureBytes, expiring: Option<NaiveDate>, id: String, mail: Option<String>, notes: Option<String>) -> Result<Self, Err>{
+    fn new_with_date(pwd: SecureBytes, expiring: Option<NaiveDate>, id: String, usr: Option<String>, mail: Option<String>, notes: Option<String>) -> Result<Self, Err>{
 
         if id.is_empty() {
             return Err(Err::new("id argument must not be empty", ErrSrc::Domain));
@@ -205,12 +222,16 @@ impl CredSet for CredEntry {
             return Err(Err::new("if not None, expiration date can not predate or be equal to the current date", ErrSrc::Domain));
         }
 
+        if let Some(u) = &usr && u.is_empty() {
+            return Err(Err::new("if not None, username must not be empty", ErrSrc::Domain));
+        }
+
         if let Some(m) = &mail && let Err(e) = CredEntry::check_mail(m) {
             return Err(e);
         }
 
         if let Some(t) = &notes && t.is_empty() {
-            return Err(Err::new("if not None, notes argument must not be empty", ErrSrc::Domain));
+            return Err(Err::new("if not None, notes must not be empty", ErrSrc::Domain));
         }
 
         crate::validate_pwd(&pwd)?;
@@ -219,6 +240,7 @@ impl CredSet for CredEntry {
             pwd,
             exp_date: expiring,
             id,
+            usr,
             mail,
             notes
         })
@@ -268,6 +290,20 @@ impl CredSet for CredEntry {
         Ok(())
     }
 
+    fn get_usr(&self) -> &Option<String>{
+        &self.usr
+    }
+
+    fn set_usr(&mut self, usr: Option<String>) -> Result<(), Err>{
+        if let Some(u) = &usr && u.is_empty() {
+            return Err(Err::new("if not None, username must not be empty", ErrSrc::Domain));
+        }
+
+        self.usr = usr;
+
+        Ok(())
+    }
+
     fn get_mail(&self) -> &Option<String>{
         &self.mail
     }
@@ -288,7 +324,7 @@ impl CredSet for CredEntry {
 
     fn set_notes(&mut self, notes: Option<String>) -> Result<(), Err>{
         if let Some(t) = &notes && t.is_empty() {
-            return Err(Err::new("if not None, free text must not be empty", ErrSrc::Domain));
+            return Err(Err::new("if not None, notes must not be empty", ErrSrc::Domain));
         }
 
         self.notes = notes;
@@ -363,14 +399,16 @@ mod tests {
 
         // None case
         
+        let usr = None;
         let mail = None;
         let notes = None;
 
-        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), notes.clone())
+        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), usr.clone(), mail.clone(), notes.clone())
             .expect("unable to create CredEntry (None case)");
 
         assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (None case)");
         assert_eq!(ce.id, id, "id does not correspond to ce.id (None case)");
+        assert_eq!(ce.usr, usr, "usr does not correspond to ce.usr (None case)");
         assert_eq!(
             ce.exp_date,
             Some(Utc::now()
@@ -385,14 +423,16 @@ mod tests {
 
         // Some case
 
+        let usr = Some(String::from("usr"));
         let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
-        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), notes.clone())
+        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), usr.clone(), mail.clone(), notes.clone())
             .expect("unable to create CredEntry (Some case)");
 
         assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (Some case)");
         assert_eq!(ce.id, id, "id does not correspond to ce.id (Some case)");
+        assert_eq!(ce.usr, usr, "usr does not correspond to ce.usr (Some case)");
         assert_eq!(
             ce.exp_date,
             Some(Utc::now()
@@ -416,14 +456,16 @@ mod tests {
 
         // None case
         
+        let usr = None;
         let mail = None;
         let notes = None;
 
-        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), notes.clone())
+        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), usr.clone(), mail.clone(), notes.clone())
             .expect("unable to create CredEntry (None case)");
 
         assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (None case)");
         assert_eq!(ce.id, id, "id does not correspond to ce.id (None case)");
+        assert_eq!(ce.usr, usr, "usr does not correspond to ce.usr (None case)");
         assert_eq!(
             ce.exp_date,
             None,
@@ -433,14 +475,16 @@ mod tests {
 
         // Some case
 
+        let usr = Some(String::from("usr"));
         let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
-        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), notes.clone())
+        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), usr.clone(), mail.clone(), notes.clone())
             .expect("unable to create CredEntry (Some case)");
 
         assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (Some case)");
         assert_eq!(ce.id, id, "id does not correspond to ce.id (Some case)");
+        assert_eq!(ce.usr, usr, "usr does not correspond to ce.usr (Some case)");
         assert_eq!(
             ce.exp_date,
             None,
@@ -462,14 +506,16 @@ mod tests {
         // None case
         
         let expiring = None;
+        let usr = None;
         let mail = None;
         let notes = None;
 
-        let ce = CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), mail.clone(), notes.clone())
+        let ce = CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), usr.clone(), mail.clone(), notes.clone())
             .expect("unable to create CredEntry (None case)");
 
         assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (None case)");
         assert_eq!(ce.id, id, "id does not correspond to ce.id (None case)");
+        assert_eq!(ce.usr, usr, "usr does not correspond to ce.usr (None case)");
         assert_eq!(ce.exp_date, expiring, "exp_date is not set to be never expiring");
         assert_eq!(ce.mail, mail, "mail does not correspond to ce.mail (None case)");
         assert_eq!(ce.notes, notes, "notes does not correspond to ce.notes (None case)");
@@ -482,14 +528,16 @@ mod tests {
             // expect is used to avoid unwanted None coming from checked_add_signed
             .expect("unable to create expiring date (Some case)")
         );
+        let usr = Some(String::from("usr"));
         let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
-        let ce = CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), mail.clone(), notes.clone())
+        let ce = CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), usr.clone(), mail.clone(), notes.clone())
             .expect("unable to create CredEntry (Some case)");
 
         assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (Some case)");
         assert_eq!(ce.id, id, "id does not correspond to ce.id (Some case)");
+        assert_eq!(ce.usr, usr, "usr does not correspond to ce.usr (Some case)");
         assert_eq!(ce.exp_date, expiring, "expiring does not correspond to ce.expiring");
         assert_eq!(ce.mail, mail, "mail does not correspond to ce.mail (Some case)");
         assert_eq!(ce.notes, notes, "notes does not correspond to ce.notes (Some case)");
@@ -505,21 +553,23 @@ mod tests {
 
         // None case
         
+        let usr = None;
         let mail = None;
         let notes = None;
 
         assert!(
-            CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), mail.clone(), notes.clone()).is_err(),
+            CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), usr, mail, notes).is_err(),
             "no error with credential set expiring today (None case)"
         );
 
         // Some case
 
+        let usr = Some(String::from("usr"));
         let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
         assert!(
-            CredEntry::new_with_date(pwd, expiring, id, mail, notes).is_err(),
+            CredEntry::new_with_date(pwd, expiring, id, usr, mail, notes).is_err(),
             "no error with credential set expiring today (Some case)"
         );
     }
@@ -538,21 +588,23 @@ mod tests {
 
         // None case
         
+        let usr = None;
         let mail = None;
         let notes = None;
 
         assert!(
-            CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), mail.clone(), notes.clone()).is_err(),
+            CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), usr, mail, notes).is_err(),
             "no error with exp_date predating today (None case)"
         );
 
         // Some case
 
+        let usr = Some(String::from("usr"));
         let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
         assert!(
-            CredEntry::new_with_date(pwd, expiring, id, mail, notes).is_err(),
+            CredEntry::new_with_date(pwd, expiring, id, usr, mail, notes).is_err(),
             "no error with exp_date predating today (Some case)"
         );
     }
@@ -566,11 +618,12 @@ mod tests {
         // None case
         
         let expiring = None;
+        let usr = None;
         let mail = None;
         let notes = None;
 
         assert!(
-            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), mail.clone(), notes.clone()).is_err(),
+            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), usr, mail, notes).is_err(),
             "no error with empty id (None case)"
         );
 
@@ -582,12 +635,48 @@ mod tests {
             // expect is used to avoid unwanted None coming from checked_add_signed
             .expect("unable to create expiring date (Some case)")
         );
+        let usr = Some(String::from("usr"));
         let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
         assert!(
-            CredEntry::new_with_date(pwd, expiring, id, mail, notes).is_err(),
+            CredEntry::new_with_date(pwd, expiring, id, usr, mail, notes).is_err(),
             "no error with empty id (Some case)"
+        );
+    }
+
+    /// Tests that `new_with_date` returns an error if usr is empty and not `None`
+    #[test]
+    fn new_with_date_usr_empty() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::from("id");
+        let usr = Some(String::new());
+
+        // None case
+        
+        let expiring = None;
+        let mail = None;
+        let notes = None;
+
+        assert!(
+            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), usr.clone(), mail, notes).is_err(),
+            "no error with empty usr (None case)"
+        );
+
+        // Some case
+
+        let expiring = Some(Utc::now()
+            .date_naive()
+            .checked_add_signed(TimeDelta::seconds(60 * 60 * 24))
+            // expect is used to avoid unwanted None coming from checked_add_signed
+            .expect("unable to create expiring date (Some case)")
+        );
+        let mail = Some(String::from("a@vaild.mail"));
+        let notes = Some(String::from("notes"));
+
+        assert!(
+            CredEntry::new_with_date(pwd, expiring, id, usr, mail, notes).is_err(),
+            "no error with empty usr (Some case)"
         );
     }
 
@@ -601,10 +690,11 @@ mod tests {
         // None case
         
         let expiring = None;
+        let usr = None;
         let notes = None;
 
         assert!(
-            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), mail.clone(), notes.clone()).is_err(),
+            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), usr, mail.clone(), notes).is_err(),
             "no error with empty mail (None case)"
         );
 
@@ -616,10 +706,11 @@ mod tests {
             // expect is used to avoid unwanted None coming from checked_add_signed
             .expect("unable to create expiring date (Some case)")
         );
+        let usr = Some(String::from("usr"));
         let notes = Some(String::from("notes"));
 
         assert!(
-            CredEntry::new_with_date(pwd, expiring, id, mail, notes).is_err(),
+            CredEntry::new_with_date(pwd, expiring, id, usr, mail, notes).is_err(),
             "no error with empty mail (Some case)"
         );
     }
@@ -634,10 +725,11 @@ mod tests {
         // None case
         
         let expiring = None;
+        let usr = None;
         let mail = None;
 
         assert!(
-            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), mail.clone(), notes.clone()).is_err(),
+            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), usr, mail, notes.clone()).is_err(),
             "no error with empty notes (None case)"
         );
 
@@ -649,10 +741,11 @@ mod tests {
             // expect is used to avoid unwanted None coming from checked_add_signed
             .expect("unable to create expiring date (Some case)")
         );
+        let usr = Some(String::from("usr"));
         let mail = Some(String::from("a@mail.com"));
 
         assert!(
-            CredEntry::new_with_date(pwd, expiring, id, mail, notes).is_err(),
+            CredEntry::new_with_date(pwd, expiring, id, usr, mail, notes).is_err(),
             "no error with empty notes (Some case)"
         );
     }
@@ -664,7 +757,7 @@ mod tests {
     #[test]
     fn get_pwd_value() {
         let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
-        let ce = CredEntry::new(pwd.clone(), true, String::from("id"), None, None)
+        let ce = CredEntry::new(pwd.clone(), true, String::from("id"), None, None, None)
             .expect("unable to create CredEntry");
 
         assert_eq!(ce.get_pwd(), &pwd, "pwd does not correspond to ce.get_pwd");
@@ -674,7 +767,7 @@ mod tests {
     #[test]
     fn set_pwd_value() {
         let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
-        let mut ce = CredEntry::new(pwd, true, String::from("id"), None, None)
+        let mut ce = CredEntry::new(pwd, true, String::from("id"), None, None, None)
             .expect("unable to create CredEntry");
 
         let pwd2 = SecureBytes::new(Vec::from("Another_password1"));
@@ -688,7 +781,7 @@ mod tests {
     #[test]
     fn set_pwd_exp_none() {
         let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
-        let mut ce = CredEntry::new(pwd, true, String::from("id"), None, None)
+        let mut ce = CredEntry::new(pwd, true, String::from("id"), None, None, None)
             .expect("unable to create CredEntry");
 
         let pwd2 = SecureBytes::new(Vec::from("Another_password1"));
@@ -702,7 +795,7 @@ mod tests {
     #[test]
     fn set_pwd_exp_some() {
         let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
-        let mut ce = CredEntry::new(pwd, false, String::from("id"), None, None)
+        let mut ce = CredEntry::new(pwd, false, String::from("id"), None, None, None)
             .expect("unable to create CredEntry");
 
         let pwd2 = SecureBytes::new(Vec::from("Another_password1"));
@@ -725,6 +818,7 @@ mod tests {
             false,
             String::from("id"),
             None,
+            None,
             None
         ).expect("unable to create CredEntry");
 
@@ -736,7 +830,7 @@ mod tests {
     #[test]
     fn get_id_value() {
         let id = String::from("id");
-        let ce = CredEntry::new(SecureBytes::new(Vec::from("A_secure_pwd1")), false, id.clone(), None, None)
+        let ce = CredEntry::new(SecureBytes::new(Vec::from("A_secure_pwd1")), false, id.clone(), None, None, None)
             .expect("unable to create CredEntry");
 
         assert_eq!(ce.get_id(), &id, "id is not equal to ce.get_id");
@@ -749,6 +843,7 @@ mod tests {
             SecureBytes::new(Vec::from("A_secure_password1")),
             false,
             String::from("id"),
+            None,
             None,
             None
         ).expect("unable to create CredEntry");
@@ -768,6 +863,7 @@ mod tests {
             false,
             String::from("id"),
             None,
+            None,
             None
         ).expect("unable to create CredEntry");
 
@@ -780,7 +876,7 @@ mod tests {
     /// Tests that `get_mail` returns the correct value
     #[test]
     fn get_mail_value() {
-        let ce = CredEntry::new(SecureBytes::new(Vec::from("A_secure_pwd1")), false, String::from("id"), None, None)
+        let ce = CredEntry::new(SecureBytes::new(Vec::from("A_secure_pwd1")), false, String::from("id"), None, None, None)
             .expect("unable to create CredEntry");
 
         assert_eq!(ce.get_mail(), &None, "mail is not equal to ce.get_mail");
@@ -793,6 +889,7 @@ mod tests {
             SecureBytes::new(Vec::from("A_secure_password1")),
             false,
             String::from("id"),
+            None,
             None,
             None
         ).expect("unable to create CredEntry");
@@ -812,6 +909,7 @@ mod tests {
             false,
             String::from("id"),
             None,
+            None,
             None
         ).expect("unable to create CredEntry");
 
@@ -825,7 +923,7 @@ mod tests {
     /// Tests that `get_notes` returns the correct value
     #[test]
     fn get_notes_value() {
-        let ce = CredEntry::new(SecureBytes::new(Vec::from("A_secure_pwd1")), false, String::from("id"), None, None)
+        let ce = CredEntry::new(SecureBytes::new(Vec::from("A_secure_pwd1")), false, String::from("id"), None, None, None)
             .expect("unable to create CredEntry");
 
         assert_eq!(ce.get_notes(), &None, "notes is not equal to ce.get_notes");
@@ -838,6 +936,7 @@ mod tests {
             SecureBytes::new(Vec::from("A_secure_password1")),
             false,
             String::from("id"),
+            None,
             None,
             None
         ).expect("unable to create CredEntry");
@@ -856,6 +955,7 @@ mod tests {
             SecureBytes::new(Vec::from("A_secure_password1")),
             false,
             String::from("id"),
+            None,
             None,
             None
         ).expect("unable to create CredEntry");
