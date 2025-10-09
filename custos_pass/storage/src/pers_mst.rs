@@ -85,6 +85,12 @@ pub trait PersMst<M: MstPwd> {
 
 // PersMaster [[[
 
+// Provides master password storage functionality 
+//
+// # Security Note
+//
+// Only one instance of this struct must be created at a time. Not doing so may lead to security
+// issues.
 pub struct PersMaster<M: MstPwd> {
     mst: M,
     old_mst: Vec<HashVal>
