@@ -5,6 +5,7 @@
 use crypto::SecureBytes;
 use chrono::{NaiveDate, TimeDelta, Utc};
 use error::{Err, ErrSrc};
+use regex::Regex;
 
 /// Credential set expiration time delta. It corresponds to 3 months expressed in seconds
 /// (assuming that each month has 30 days for simplicity).
@@ -27,7 +28,10 @@ pub trait CredSet where Self: Sized{
     /// - `expiring`: credential set will be valid for 3 months if `true`; it will never
     /// expire otherwise. Expiration date is based on UTC timezone
     /// - `id`: credential set id. It must __NOT__ be empty
-    /// - `mail`: credential set e-mail. If not `None`, it must __NOT__ be empty
+    /// - `mail`: credential set e-mail. If not `None`, it must: 
+    ///     - __NOT__ be empty
+    ///     - follow the template _a@b.c_. A, b and c can have an arbitrary length and contain
+    ///     anything but the space character
     /// - `notes`: credential set free text. If not `None`, it must __NOT__ be empty
     ///
     /// # Returns
@@ -50,7 +54,10 @@ pub trait CredSet where Self: Sized{
     /// Expiration date is based on UTC timezone and must __NOT__ predate or be equal to the
     /// creation date of the struct
     /// - `id`: credential set id. It must __NOT__ be empty
-    /// - `mail`: credential set e-mail. If not `None`, it must __NOT__ be empty
+    /// - `mail`: credential set e-mail. If not `None`, it must: 
+    ///     - __NOT__ be empty
+    ///     - follow the template _a@b.c_. A, b and c can have an arbitrary length and contain
+    ///     anything but the space character
     /// - `notes`: credential set free text. If not `None`, it must __NOT__ be empty
     ///
     /// # Returns
@@ -106,11 +113,10 @@ pub trait CredSet where Self: Sized{
     ///
     /// # Parameters
     ///
-    /// - `mail`: e-mail value. If not `None`, it must:
+    /// - `mail`: credential set e-mail. If not `None`, it must: 
     ///     - __NOT__ be empty
-    ///     - have at least a character before the '@'
-    ///     - have at least a character before the '.' that follos the '@'
-    ///     - have at least a character after the '.' that follows the '@'
+    ///     - follow the template _a@b.c_. A, b and c can have an arbitrary length and contain
+    ///     anything but the space character
     ///
     /// # Returns
     ///
@@ -153,6 +159,21 @@ impl PartialEq for CredEntry {
 
 impl Eq for CredEntry {}
 
+impl CredEntry {
+    /// Checks that an e-mail is in the format _a@b.c_, where _a_, _b_ and _c_ can have an
+    /// arbitrary length and contain anything but the space character
+    fn check_mail(mail: &String) -> Result<(), Err> {
+        let reg = Regex::new(r"^[\S]+@[\S]+\.[\S]+$")
+            .map_err(|_| Err::new("unable to create e-mail requirements checker", ErrSrc::Domain))?;
+
+        if !reg.is_match(mail) {
+            return Err(Err::new("e-mail must follow the template a@b.c, where a, b and c can have an arbitrary length and contain anything but the space character", ErrSrc::Domain));
+        }
+
+        Ok(())
+    }
+}
+
 // ]]]
 
 // impl CredSet for CredEntry [[[
@@ -184,8 +205,8 @@ impl CredSet for CredEntry {
             return Err(Err::new("if not None, expiration date can not predate or be equal to the current date", ErrSrc::Domain));
         }
 
-        if let Some(m) = &mail && m.is_empty() {
-            return Err(Err::new("if not None, mail argument must not be empty", ErrSrc::Domain));
+        if let Some(m) = &mail && let Err(e) = CredEntry::check_mail(m) {
+            return Err(e);
         }
 
         if let Some(t) = &notes && t.is_empty() {
@@ -252,8 +273,8 @@ impl CredSet for CredEntry {
     }
 
     fn set_mail(&mut self, mail: Option<String>) -> Result<(), Err>{
-        if let Some(m) = &mail && m.is_empty() {
-            return Err(Err::new("if not None, mail must not be empty", ErrSrc::Domain));
+        if let Some(m) = &mail && let Err(e) = CredEntry::check_mail(m) {
+            return Err(e);
         }
 
         self.mail = mail;
@@ -283,6 +304,49 @@ impl CredSet for CredEntry {
 
 mod tests {
     use super::*;
+
+    // check_mail [[[
+
+    /// Tests that `check_mail` returns `()` if the mail is valid
+    #[test]
+    fn check_mail_valid() {
+        let mail = String::from("a.valid@e.mail.com");
+
+        assert!(CredEntry::check_mail(&mail).is_ok(), "error with a vaid mail");
+    }
+
+    /// Tests that `check_mail` returns an error if the mail is empty
+    #[test]
+    fn check_mail_empty() {
+        let mail = String::new();
+
+        assert!(CredEntry::check_mail(&mail).is_err(), "no error with an empty mail");
+    }
+
+    /// Tests that `check_mail` returns an error if the mail misses the @
+    #[test]
+    fn check_mail_no_at() {
+        let mail = String::from("invalidmail.com");
+
+        assert!(CredEntry::check_mail(&mail).is_err(), "no error with a mail missing the @");
+    }
+
+    /// Tests that `check_mail` returns an error if the mail misses the .
+    #[test]
+    fn check_mail_no_dot() {
+        let mail = String::from("invalid@mailcom");
+
+        assert!(CredEntry::check_mail(&mail).is_err(), "no error with a mail missing the .");
+    }
+
+    /// Tests that `check_mail` returns an error if the mail misses the text before the @
+    #[test]
+    fn check_mail_no_txt() {
+        let mail = String::from("@invalid.mail.com");
+
+        assert!(CredEntry::check_mail(&mail).is_err(), "no error with a mail missing the text before the @");
+    }
+    // ]]]
 
     // new [[[
 
@@ -321,7 +385,7 @@ mod tests {
 
         // Some case
 
-        let mail = Some(String::from("mail"));
+        let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
         let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), notes.clone())
@@ -369,7 +433,7 @@ mod tests {
 
         // Some case
 
-        let mail = Some(String::from("mail"));
+        let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
         let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), notes.clone())
@@ -418,7 +482,7 @@ mod tests {
             // expect is used to avoid unwanted None coming from checked_add_signed
             .expect("unable to create expiring date (Some case)")
         );
-        let mail = Some(String::from("mail"));
+        let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
         let ce = CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), mail.clone(), notes.clone())
@@ -451,7 +515,7 @@ mod tests {
 
         // Some case
 
-        let mail = Some(String::from("mail"));
+        let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
         assert!(
@@ -484,7 +548,7 @@ mod tests {
 
         // Some case
 
-        let mail = Some(String::from("mail"));
+        let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
         assert!(
@@ -518,7 +582,7 @@ mod tests {
             // expect is used to avoid unwanted None coming from checked_add_signed
             .expect("unable to create expiring date (Some case)")
         );
-        let mail = Some(String::from("mail"));
+        let mail = Some(String::from("a@mail.com"));
         let notes = Some(String::from("notes"));
 
         assert!(
@@ -585,7 +649,7 @@ mod tests {
             // expect is used to avoid unwanted None coming from checked_add_signed
             .expect("unable to create expiring date (Some case)")
         );
-        let mail = Some(String::from("mail"));
+        let mail = Some(String::from("a@mail.com"));
 
         assert!(
             CredEntry::new_with_date(pwd, expiring, id, mail, notes).is_err(),
@@ -733,7 +797,7 @@ mod tests {
             None
         ).expect("unable to create CredEntry");
 
-        let mail = Some(String::from("new_mail"));
+        let mail = Some(String::from("new@mail.com"));
         ce.set_mail(mail.clone()).expect("unable to updated mail value");
 
         assert_eq!(ce.mail, mail, "mail value has not been updated");
