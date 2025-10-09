@@ -272,3 +272,398 @@ impl CredSet for CredEntry {
 }
 // ]]]
 
+// unit testing [[[
+#[cfg(test)]
+
+mod tests {
+    use super::*;
+
+    // new [[[
+    /// Tests that `new` returns an instance of CredEntry filled with the associated function
+    /// arguments when expiring is true
+    #[test]
+    fn new_value_true() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::from("id");
+        let expiring = true;
+
+        // None case
+        
+        let mail = None;
+        let txt = None;
+
+        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone())
+            .expect("unable to create CredEntry (None case)");
+
+        assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (None case)");
+        assert_eq!(ce.id, id, "id does not correspond to ce.id (None case)");
+        assert_eq!(
+            ce.exp_date,
+            Some(Utc::now()
+                .date_naive()
+                .checked_add_signed(TimeDelta::seconds(CRED_EXP))
+                // expect is used to detect unwanted None coming from checked_add_signed
+                .expect("unable to compute current date (None case)")
+            ),
+            "expiring date is not valid for CRED_EXP (None case)");
+        assert_eq!(ce.mail, mail, "mail does not correspond to ce.mail (None case)");
+        assert_eq!(ce.txt, txt, "txt does not correspond to ce.txt (None case)");
+
+        // Some case
+
+        let mail = Some(String::from("mail"));
+        let txt = Some(String::from("txt"));
+
+        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone())
+            .expect("unable to create CredEntry (Some case)");
+
+        assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (Some case)");
+        assert_eq!(ce.id, id, "id does not correspond to ce.id (Some case)");
+        assert_eq!(
+            ce.exp_date,
+            Some(Utc::now()
+                .date_naive()
+                .checked_add_signed(TimeDelta::seconds(CRED_EXP))
+                // expect is used to detect unwanted None coming from checked_add_signed
+                .expect("unable to compute current date (Some case)")
+            ),
+            "expiring date is not valid for CRED_EXP (Some case)");
+        assert_eq!(ce.mail, mail, "mail does not correspond to ce.mail (Some case)");
+        assert_eq!(ce.txt, txt, "txt does not correspond to ce.txt (Some case)");
+    }
+
+    /// Tests that `new` returns an instance of CredEntry filled with the associated function
+    /// arguments when expiring is false
+    #[test]
+    fn new_value_false() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::from("id");
+        let expiring = false;
+
+        // None case
+        
+        let mail = None;
+        let txt = None;
+
+        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone())
+            .expect("unable to create CredEntry (None case)");
+
+        assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (None case)");
+        assert_eq!(ce.id, id, "id does not correspond to ce.id (None case)");
+        assert_eq!(
+            ce.exp_date,
+            None,
+            "exp_date is not set to be never expiring (None case)");
+        assert_eq!(ce.mail, mail, "mail does not correspond to ce.mail (None case)");
+        assert_eq!(ce.txt, txt, "txt does not correspond to ce.txt (None case)");
+
+        // Some case
+
+        let mail = Some(String::from("mail"));
+        let txt = Some(String::from("txt"));
+
+        let ce = CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone())
+            .expect("unable to create CredEntry (Some case)");
+
+        assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (Some case)");
+        assert_eq!(ce.id, id, "id does not correspond to ce.id (Some case)");
+        assert_eq!(
+            ce.exp_date,
+            None,
+            "exp_date is not set to be never expiring (Some case)");
+        assert_eq!(ce.mail, mail, "mail does not correspond to ce.mail (Some case)");
+        assert_eq!(ce.txt, txt, "txt does not correspond to ce.txt (Some case)");
+    }
+
+    /// Tests that `new` returns an error if id is empty
+    #[test]
+    fn new_id_empty() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::new();
+        let expiring = true;
+
+        // None case
+        
+        let mail = None;
+        let txt = None;
+
+        assert!(
+            CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone()).is_err(),
+            "no error with empty id (None case)"
+        );
+
+        // Some case
+
+        let mail = Some(String::from("mail"));
+        let txt = Some(String::from("txt"));
+
+        assert!(
+            CredEntry::new(pwd, expiring, id, mail, txt).is_err(),
+            "no error with empty id (Some case)"
+        );
+    }
+
+    /// Tests that `new` returns an error if mail is empty and not `None`
+    #[test]
+    fn new_mail_empty() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::from("id");
+        let expiring = true;
+        let mail = Some(String::new());
+
+        // None case
+        
+        let txt = None;
+
+        assert!(
+            CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone()).is_err(),
+            "no error with empty mail (None case)"
+        );
+
+        // Some case
+
+        let txt = Some(String::from("txt"));
+
+        assert!(
+            CredEntry::new(pwd, expiring, id, mail, txt).is_err(),
+            "no error with empty mail (Some case)"
+        );
+    }
+
+    /// Tests that `new` returns an error if txt is empty and not `None`
+    #[test]
+    fn new_txt_empty() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::from("id");
+        let expiring = true;
+        let txt = Some(String::new());
+
+        // None case
+        
+        let mail = None;
+
+        assert!(
+            CredEntry::new(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone()).is_err(),
+            "no error with empty txt (None case)"
+        );
+
+        // Some case
+
+        let mail = Some(String::from("mail"));
+
+        assert!(
+            CredEntry::new(pwd, expiring, id, mail, txt).is_err(),
+            "no error with empty txt (Some case)"
+        );
+    }
+    // ]]]
+
+
+    // new_with_date [[[
+    /// Tests that `new_with_date` returns an instance of CredEntry filled with the associated function
+    /// arguments
+    #[test]
+    fn new_with_date_value() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::from("id");
+
+        // None case
+        
+        let expiring = None;
+        let mail = None;
+        let txt = None;
+
+        let ce = CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), mail.clone(), txt.clone())
+            .expect("unable to create CredEntry (None case)");
+
+        assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (None case)");
+        assert_eq!(ce.id, id, "id does not correspond to ce.id (None case)");
+        assert_eq!(ce.exp_date, expiring, "exp_date is not set to be never expiring");
+        assert_eq!(ce.mail, mail, "mail does not correspond to ce.mail (None case)");
+        assert_eq!(ce.txt, txt, "txt does not correspond to ce.txt (None case)");
+
+        // Some case
+
+        let expiring = Some(Utc::now()
+            .date_naive()
+            .checked_add_signed(TimeDelta::seconds(60 * 60 * 24))
+            // expect is used to avoid unwanted None coming from checked_add_signed
+            .expect("unable to create expiring date (Some case)")
+        );
+        let mail = Some(String::from("mail"));
+        let txt = Some(String::from("txt"));
+
+        let ce = CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), mail.clone(), txt.clone())
+            .expect("unable to create CredEntry (Some case)");
+
+        assert_eq!(ce.pwd, pwd, "pwd does not correspond to ce.pwd (Some case)");
+        assert_eq!(ce.id, id, "id does not correspond to ce.id (Some case)");
+        assert_eq!(ce.exp_date, expiring, "expiring does not correspond to ce.expiring");
+        assert_eq!(ce.mail, mail, "mail does not correspond to ce.mail (Some case)");
+        assert_eq!(ce.txt, txt, "txt does not correspond to ce.txt (Some case)");
+    }
+
+
+    /// Tests that `new_with_date` returns an error if expiring equal to the current day 
+    #[test]
+    fn new_with_date_exp_today() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::new();
+        let expiring = Some(Utc::now().date_naive());
+
+        // None case
+        
+        let mail = None;
+        let txt = None;
+
+        assert!(
+            CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), mail.clone(), txt.clone()).is_err(),
+            "no error with credential set expiring today (None case)"
+        );
+
+        // Some case
+
+        let mail = Some(String::from("mail"));
+        let txt = Some(String::from("txt"));
+
+        assert!(
+            CredEntry::new_with_date(pwd, expiring, id, mail, txt).is_err(),
+            "no error with credential set expiring today (Some case)"
+        );
+    }
+
+    /// Tests that `new_with_date` returns an error if expiring predates the current day 
+    #[test]
+    fn new_with_date_exp_predate() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::new();
+        let expiring = Some(Utc::now()
+            .date_naive()
+            .checked_sub_signed(TimeDelta::seconds(60 * 60 * 24))
+            // expect used to avoid unwanted None from checked_sub_signed
+            .expect("unable to get expiring date")
+        );
+
+        // None case
+        
+        let mail = None;
+        let txt = None;
+
+        assert!(
+            CredEntry::new_with_date(pwd.clone(), expiring.clone(), id.clone(), mail.clone(), txt.clone()).is_err(),
+            "no error with exp_date predating today (None case)"
+        );
+
+        // Some case
+
+        let mail = Some(String::from("mail"));
+        let txt = Some(String::from("txt"));
+
+        assert!(
+            CredEntry::new_with_date(pwd, expiring, id, mail, txt).is_err(),
+            "no error with exp_date predating today (Some case)"
+        );
+    }
+
+    /// Tests that `new_with_date` returns an error if id is empty
+    #[test]
+    fn new_with_date_id_empty() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::new();
+
+        // None case
+        
+        let expiring = None;
+        let mail = None;
+        let txt = None;
+
+        assert!(
+            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone()).is_err(),
+            "no error with empty id (None case)"
+        );
+
+        // Some case
+
+        let expiring = Some(Utc::now()
+            .date_naive()
+            .checked_add_signed(TimeDelta::seconds(60 * 60 * 24))
+            // expect is used to avoid unwanted None coming from checked_add_signed
+            .expect("unable to create expiring date (Some case)")
+        );
+        let mail = Some(String::from("mail"));
+        let txt = Some(String::from("txt"));
+
+        assert!(
+            CredEntry::new_with_date(pwd, expiring, id, mail, txt).is_err(),
+            "no error with empty id (Some case)"
+        );
+    }
+
+    /// Tests that `new_with_date` returns an error if mail is empty and not `None`
+    #[test]
+    fn new_with_date_mail_empty() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::from("id");
+        let mail = Some(String::new());
+
+        // None case
+        
+        let expiring = None;
+        let txt = None;
+
+        assert!(
+            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone()).is_err(),
+            "no error with empty mail (None case)"
+        );
+
+        // Some case
+
+        let expiring = Some(Utc::now()
+            .date_naive()
+            .checked_add_signed(TimeDelta::seconds(60 * 60 * 24))
+            // expect is used to avoid unwanted None coming from checked_add_signed
+            .expect("unable to create expiring date (Some case)")
+        );
+        let txt = Some(String::from("txt"));
+
+        assert!(
+            CredEntry::new_with_date(pwd, expiring, id, mail, txt).is_err(),
+            "no error with empty mail (Some case)"
+        );
+    }
+
+    /// Tests that `new_with_date` returns an error if txt is empty and not `None`
+    #[test]
+    fn new_with_date_txt_empty() {
+        let pwd = SecureBytes::new(Vec::from("A_secure_password1"));
+        let id = String::from("id");
+        let txt = Some(String::new());
+
+        // None case
+        
+        let expiring = None;
+        let mail = None;
+
+        assert!(
+            CredEntry::new_with_date(pwd.clone(), expiring, id.clone(), mail.clone(), txt.clone()).is_err(),
+            "no error with empty txt (None case)"
+        );
+
+        // Some case
+
+        let expiring = Some(Utc::now()
+            .date_naive()
+            .checked_add_signed(TimeDelta::seconds(60 * 60 * 24))
+            // expect is used to avoid unwanted None coming from checked_add_signed
+            .expect("unable to create expiring date (Some case)")
+        );
+        let mail = Some(String::from("mail"));
+
+        assert!(
+            CredEntry::new_with_date(pwd, expiring, id, mail, txt).is_err(),
+            "no error with empty txt (Some case)"
+        );
+    }
+    // ]]]
+}
+// ]]]
