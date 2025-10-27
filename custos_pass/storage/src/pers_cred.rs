@@ -44,9 +44,9 @@ pub trait PersCredSet<C: CredSet> {
     ///
     /// # Returns
     ///
-    /// Returns a `Vec` of credential sets that contain `text` in their id, username, or notes 
-    /// if they exist; `None` otherwise.
-    fn read_text(&self, text: &String) -> Option<Vec<&C>>;
+    /// Returns all the credential sets that contain `text` in their id, username, or notes 
+    /// if they exist; an empty `Vec` otherwise.
+    fn read_text(&self, text: &String) -> Vec<&C>;
 
     /// Updates a credential set with the given id.
     ///
@@ -72,14 +72,15 @@ pub trait PersCredSet<C: CredSet> {
     /// Returns `()` if a credential set with the given id exists, `Err` otherwise.
     fn delete(&mut self, id: &String) -> Result<(), Err>;
 
-    /// Returns all the credential sets in the storage layer if they exist.
-    fn list_all(&self) -> Option<Vec<C>>;
+    /// Clones and returns all the credential sets in the storage layer if they exist; an empty `Vec`
+    /// otherwise.
+    fn list_all(&self) -> &Vec<C>;
 
-    /// Returns all the expired credential sets if they exist.
-    fn check_expired(&self) -> Option<Vec<C>>;
+    /// Returns all the expired credential set ids or an empty `Vec`.
+    fn check_expired(&self) -> Vec<&String>;
 
-    /// Returns all the non-expiring credential sets if they exist.
-    fn check_non_expiring(&self) -> Option<Vec<C>>;
+    /// Returns all the non-expiring credential set ids or an empty `Vec`.
+    fn check_non_expiring(&self) -> Vec<&String>;
 }
 
 // ]]]
@@ -164,7 +165,7 @@ impl <C: CredSet> PersCredSet<C> for CredStorage<C> {
     }
 
 
-    fn read_text(&self, text: &String) -> Option<Vec<&C>>{
+    fn read_text(&self, text: &String) -> Vec<&C>{
         unimplemented!();
     }
 
@@ -186,7 +187,7 @@ impl <C: CredSet> PersCredSet<C> for CredStorage<C> {
 
             *c = cred_set;
         } else {
-            // cs_tree update needed as the updated id in cred_set is not equal to the one. 
+            // cs_tree update needed as the updated id in cred_set is not equal to the old one. 
             // Therefore, same cs_vec index must be associated to the new id value
             let index = self.cs_tree
                 .remove(id)
@@ -232,16 +233,32 @@ impl <C: CredSet> PersCredSet<C> for CredStorage<C> {
         Ok(())
     }
 
-    fn list_all(&self) -> Option<Vec<C>>{
-        unimplemented!();
+    fn list_all(&self) -> &Vec<C>{
+        &self.cs_vec
     }
 
-    fn check_expired(&self) -> Option<Vec<C>>{
-        unimplemented!();
+    fn check_expired(&self) -> Vec<&String>{
+        let mut exp = Vec::new();
+
+        for c in self.cs_vec.iter() {
+            if let Some(date) = c.get_exp_date() && date <= &Utc::now().date_naive() {
+                exp.push(c.get_id())
+            }
+        }
+
+        exp
     }
 
-    fn check_non_expiring(&self) -> Option<Vec<C>>{
-        unimplemented!();
+    fn check_non_expiring(&self) -> Vec<&String>{
+        let mut non_exp = Vec::new();
+
+        for c in self.cs_vec.iter() {
+            if c.get_exp_date().is_none() {
+                non_exp.push(c.get_id())
+            }
+        }
+
+        non_exp
     }
 
 
