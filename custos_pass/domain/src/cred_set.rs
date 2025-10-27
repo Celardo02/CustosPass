@@ -6,6 +6,7 @@ use crypto::SecureBytes;
 use chrono::{NaiveDate, TimeDelta, Utc};
 use error::{Err, ErrSrc};
 use regex::Regex;
+use std::cmp::Ordering;
 
 /// Credential set expiration time delta. It corresponds to 3 months expressed in seconds
 /// (assuming that each month has 30 days for simplicity).
@@ -13,7 +14,7 @@ const CRED_EXP: i64 = 3 * 30 * 24 * 60 * 60;
 
 // CredSet trait [[[
 /// Defines the behavior of a struct storing credential set data.
-pub trait CredSet where Self: Sized{
+pub trait CredSet: Clone + Ord where Self: Sized{
     /// Creates a new credential set instance with a default expiration date.
     ///
     /// # Parameters
@@ -175,6 +176,18 @@ impl PartialEq for CredEntry {
 }
 
 impl Eq for CredEntry {}
+
+impl PartialOrd for CredEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.id.cmp(other.get_id()))
+    }
+}
+
+impl Ord for CredEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(other.get_id())
+    }
+}
 
 impl CredEntry {
     /// Checks that an e-mail is in the format _a@b.c_, where _a_, _b_ and _c_ can have an
