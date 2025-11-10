@@ -4,7 +4,6 @@
 
 
 use chrono::Utc;
-use crypto::SecureBytes;
 use domain::cred_set::CredSet;
 use error::{Err, ErrSrc};
 use avl::AvlTreeMap;
